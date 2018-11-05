@@ -20,11 +20,6 @@ public class Memory {
   private MemoryMappedChip memoryMap[];
   
   /**
-   * The Cpu6809 that will be accessing this Memory.
-   */
-  private Cpu6809 cpu;
-  
-  /**
    * Constructor for Memory. Mainly available for unit testing.
    * 
    * @param cpu The CPU that will access this Memory.
@@ -32,7 +27,6 @@ public class Memory {
    */
   public Memory(Cpu6809 cpu, boolean allRam) {
     this.memoryMap = new MemoryMappedChip[65536];
-    this.cpu = cpu;
     cpu.setMemory(this);
     if (allRam) {
       mapChipToMemory(new RamChip(0x10000), 0x0000, 0xFFFF);
@@ -43,10 +37,11 @@ public class Memory {
    * Constructor for Memory.
    * 
    * @param cpu The CPU that will access this Memory.
+   * @param via The memory mapped 6522 VIA chip.
    */
-  public Memory(Cpu6809 cpu) {
+  public Memory(Cpu6809 cpu, Via6522 via) {
     this(cpu, false);
-    // TODO: Call init method
+    initVectrexMemory(via);
   }
   
   /**
