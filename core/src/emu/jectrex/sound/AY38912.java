@@ -157,8 +157,8 @@ public class AY38912 {
       }
     } else {
       if (busControl1 == 1) {
-        // TODO: Read register. In the Vectrex, this will be needed for reading the controller switches.
-        System.out.println("AY-3-8912: Read from " + via.getPortAPins());
+        // Read register. In the Vectrex, this will be needed for reading the controller switches.
+        via.setPortAPins(readRegister(addressLatch));
       }
     }
     
@@ -451,7 +451,11 @@ public class AY38912 {
     
     // If the sample buffer is full, write it out to the audio line.
     if ((sampleBufferOffset += 1) == sampleBuffer.length) {
-      audioDevice.writeSamples(sampleBuffer, 0, sampleBuffer.length);
+      try {
+        audioDevice.writeSamples(sampleBuffer, 0, sampleBuffer.length);
+      } catch (Exception e) {
+        // An Exception can occur here if the app is closing, so we catch and ignore.
+      }
       sampleBufferOffset = 0;
     }
   }

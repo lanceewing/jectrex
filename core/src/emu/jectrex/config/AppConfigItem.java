@@ -12,6 +12,8 @@ public class AppConfigItem {
   
   private String iconPath;
   
+  private String overlayPath;
+  
   private FileLocation fileLocation = FileLocation.INTERNAL;
   
   private String status = "WORKING";
@@ -115,6 +117,20 @@ public class AppConfigItem {
    */
   public void setIconPath(String iconPath) {
     this.iconPath = iconPath;
+  }
+
+  /**
+   * @return the overlayPath
+   */
+  public String getOverlayPath() {
+    return overlayPath;
+  }
+
+  /**
+   * @param overlayPath the overlayPath to set
+   */
+  public void setOverlayPath(String overlayPath) {
+    this.overlayPath = overlayPath;
   }
 
   /**

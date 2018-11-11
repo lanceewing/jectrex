@@ -9,6 +9,7 @@ import emu.jectrex.io.Joystick;
 import emu.jectrex.io.Via6522;
 import emu.jectrex.memory.Memory;
 import emu.jectrex.sound.AY38912;
+import emu.jectrex.video.Video;
 
 /**
  * Represents the Vectrex machine.
@@ -19,7 +20,7 @@ public class Machine {
 
   // Machine components.
   private Memory memory;
-  // TODO: Need video component here.
+  private Video video;
   private Via6522 via;
   private AY38912 psg;
   private Cpu6809 cpu;
@@ -96,8 +97,6 @@ public class Machine {
     
     // Create the microprocessor.
     cpu = new Cpu6809();
-
-    // TODO: Create the video component here.
      
     // Create the peripherals.
     joystick = new Joystick();
@@ -105,12 +104,15 @@ public class Machine {
     // Create the VIA chip.
     via = new Via6522(cpu);
     
+    // Create the analog vector video component.
+    video = new Video(via);
+    
     // Initialise the AY-3-8912 PSG
     psg = new AY38912();
     psg.init(via);
     
-    // Now we create the memory, which will include mapping the ULA chip,
-    // the VIA chips, and the creation of RAM chips and ROM chips.
+    // Now we create the memory, which will include mapping the VIA chip, and 
+    // the creation of RAM chips and ROM chips.
     memory = new Memory(cpu, via);
     
     // Set up the screen dimensions based on aspect ratio of 5:4.
@@ -123,7 +125,7 @@ public class Machine {
 
     // Check if the resource parameters have been set.
     if ((programData != null) && (programData.length > 0)) {
-      if ("ROM".equals(programType)) {
+      if ("CART".equals(programType)) {
         // Loads the cartridge ROM file into memory.
         memory.loadCustomRom(0x0000, programData);
       }
@@ -133,7 +135,7 @@ public class Machine {
   }
   
   /**
-   * Updates the state of the machine of the machine until a frame is complete
+   * Updates the state of the machine of the machine until a "frame" is complete
    * 
    * @param warpSpeed true If the machine is running at warp speed.
    */
@@ -148,7 +150,9 @@ public class Machine {
     }
     lastWarpSpeed = warpSpeed;
     do {
-      // TODO: Need a video update replacement. frameComplete |= ula.emulateCycle();
+      // The concept of a frame doesn't apply to the Vectrex, but we still refresh the 
+      // screen at a rate of 50 Hz, so require that the video component track this for us.
+      frameComplete |= video.emulateCycle();
       cpu.emulateCycle();
       via.emulateCycle();
       if (!warpSpeed) {
@@ -209,24 +213,21 @@ public class Machine {
   }
 
   /**
-   * Gets the pixels for the current frame from the ULA chip.
+   * Gets the pixels for the current "frame" from the Video circuitry.
    * 
-   * @return The pixels for the current frame. Returns null if there isn't one that is ready.
+   * @return The pixels for the current "frame". Returns null if there isn't one that is ready.
    */
   public short[] getFramePixels() {
-    //return ula.getFramePixels();   // TODO: Implement video.
-    return framePixels;
+    return video.getFramePixels();
   }
-  
-  short[] framePixels = new short[MachineScreen.SCREEN_WIDTH * MachineScreen.SCREEN_HEIGHT];  // TODO: Remove.
 
   /**
    * Emulates a single machine cycle.
    * 
-   * @return true If the ULA chip has indicated that a frame should be rendered.
+   * @return true If the video chip has indicated that a frame should be rendered.
    */
   public boolean emulateCycle() {
-    boolean render = false; // TODO: Implement video. ula.emulateCycle();
+    boolean render = video.emulateCycle();
     cpu.emulateCycle();
     via.emulateCycle();
     return render;

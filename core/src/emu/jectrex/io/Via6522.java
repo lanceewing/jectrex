@@ -112,6 +112,10 @@ public class Via6522 extends MemoryMappedChip {
   
   // Shift Register
   protected int shiftRegister;              // Reg 10
+  protected int shiftClock;                 
+  protected int shiftCounter;               // Keeps track of how many bits have been shifted out.
+  protected boolean timer2Shift;            // Whether timer 2 is controlling shifting or not.
+  protected boolean cb1ClockOutEnabled;     // Whether shift clock out is enabled for CB1.
   
   protected int auxiliaryControlRegister;   // Reg 11
   protected int peripheralControlRegister;  // Reg 12
@@ -210,6 +214,10 @@ public class Via6522 extends MemoryMappedChip {
         interruptFlagRegister &= TIMER1_RESET;
         updateIFRTopBit();
         timer1HasShot = false;
+        if (timer1PB7Mode == 1) {
+          // Clear PB7 if timer 1 PB7 mode is set.
+          this.portBPins &= 0x7F;
+        }
         break;
   
       case VIA_REG_6: // Timer 1 low-order latches
@@ -248,6 +256,14 @@ public class Via6522 extends MemoryMappedChip {
         shiftRegisterMode = (value & 0x1C) >> 2;
         portALatchMode = (value & 0x01);
         portBLatchMode = (value & 0x02) >> 1;
+        timer2Shift = (
+            (shiftRegisterMode == SHIFT_IN_TIMER_2) || 
+            (shiftRegisterMode == SHIFT_OUT_FREE_RUNNING) ||
+            (shiftRegisterMode == SHIFT_OUT_TIMER_2));
+        cb1ClockOutEnabled = (
+            (shiftRegisterMode != SHIFT_REGISTER_DISABLED) && 
+            (shiftRegisterMode != SHIFT_IN_EXTERNAL_CLOCK) && 
+            (shiftRegisterMode != SHIFT_OUT_EXTERNAL_CLOCK));
         break;
   
       case VIA_REG_12: // Peripheral Control Register.
@@ -437,7 +453,7 @@ public class Via6522 extends MemoryMappedChip {
         updateIFRTopBit();
         break;
   
-      case VIA_REG_5: // Time 1 high-order counter
+      case VIA_REG_5: // Timer 1 high-order counter
         value = ((timer1Counter >> 8) & 0xFF);
         break;
   
@@ -576,6 +592,10 @@ public class Via6522 extends MemoryMappedChip {
    * Emulates a single cycle of this VIA chip.
    */
   public void emulateCycle() {
+    // There are only two ways to stop the shift counter and shift clock. One is if the shift
+    // register mode is 000 (SHIFT_REGISTER_DISABLED). The other is if the SR IFR flag is set
+    boolean shiftClockEnabled = ((shiftRegisterMode != 0) && ((interruptFlagRegister & SHIFT_SET) != 0));
+    
     // IMPORTANT NOTE: If the timer 1 latch is set to 2 during cycle T0, then on T1 it
     // would have a value of 2, then T2 a value of 1, T3 a value of 0, T4 a value of 0xFFFF
     // and then T5 back to a value of 2 again. So it isn't just 2 cycles it counts but 
@@ -591,6 +611,10 @@ public class Via6522 extends MemoryMappedChip {
             interruptFlagRegister |= TIMER1_SET;
             updateIFRTopBit();
             timer1HasShot = true;
+            if (timer1PB7Mode == 1) {
+              // If PB7 timer 1 mode on, then make PB7 go high.
+              this.portBPins |= 0x80;
+            }
           }
           
           // Counter continues to count down from 0xFFFF.
@@ -603,6 +627,10 @@ public class Via6522 extends MemoryMappedChip {
           interruptFlagRegister |= TIMER1_SET;
           updateIFRTopBit();
           timer1HasShot = true;
+          if (timer1PB7Mode == 1) {
+            // If PB7 timer 1 mode on, then toggle PB7.
+            this.portBPins ^= 0x80;
+          }
         }
       }
       else {
@@ -615,19 +643,38 @@ public class Via6522 extends MemoryMappedChip {
 
     if (!timer2Loaded) {
       if (timer2Mode == ONE_SHOT) {
-        // Note: Timer 2 does not behaviour in the same way with regards to when the 
+        // Note: Timer 2 does not behave in the same way with regards to when the 
         // interrupt occurs. For Timer 1, it is when the value is 0xFFFF, but for 
-        // timer 2, it is when the counter is 0x0000.
+        // timer 2, it is when the counter is 0x0000 (according to testing on a
+        // real Oric)
         
-        if (!timer2HasShot && (timer2Counter == 0)) {
-          interruptFlagRegister |= TIMER2_SET;
-          updateIFRTopBit();
-          timer2HasShot = true;
-        }
-        
-        // Decrement by one, wrapping around to 0XFFFF after zero.
-        timer2Counter = (timer2Counter - 1) & 0xFFFF;
-        
+        if (timer2Counter == 0) {
+          // Set flag in IFR if we haven't yet done it.
+          if (!timer2HasShot ) {
+            interruptFlagRegister |= TIMER2_SET;
+            updateIFRTopBit();
+            timer2HasShot = true;
+          }
+          
+          if (timer2Shift) {
+            // Timer 2 is currently in control of shift register, which means that 
+            // the T2 latch low should be loaded into T2 counter low.
+            timer2Counter = timer2Latch | (timer2Counter & 0xFF00);
+            
+            // For T2 shift control, we toggle the shift clock on each T2 time out.
+            if (shiftClockEnabled) {
+              shiftClock ^= 0x01;
+            }
+            
+          } else {
+            // Else if timer 2 shift not active, we roll over to 0xFFFF.
+            timer2Counter = 0xFFFF;
+          }
+          
+        } else {        
+          // Decrement by one, wrapping around to 0XFFFF after zero.
+          timer2Counter = (timer2Counter - 1) & 0xFFFF;
+        }        
       } else {
         // TODO: PB6 pulse counting.
       }
@@ -637,25 +684,105 @@ public class Via6522 extends MemoryMappedChip {
 
     // Shift the shift register.
     if (shiftRegisterMode != 0) {
-      // TODO: Implement shift register.
       switch (shiftRegisterMode) {
-      case 0x00:
-        break;
-      case 0x01:
-        break;
-      case 0x02:
-        break;
-      case 0x03:
-        break;
-      case 0x04:
-        break;
-      case 0x05:
-        break;
-      case 0x06:
-        break;
-      case 0x07:
-        break;
+        case SHIFT_REGISTER_DISABLED:
+          break;
+
+        // Shift in under control of Timer 2.
+        case SHIFT_IN_TIMER_2:
+          // Note: Shift clock is toggled in timer 2 section above.
+          // TODO: Shift In not currently implemented.
+          break;
+        
+        // Shift in under control of system clock.
+        case SHIFT_IN_SYSTEM_CLOCK:
+          if (shiftClockEnabled) {
+            // Toggle shift clock. It is half phase 2 rate.
+            shiftClock ^= 0x01;
+          }
+          // TODO: Shift In not currently implemented.
+          break;
+        
+        // Shift in under control of external clock pulses.
+        case SHIFT_IN_EXTERNAL_CLOCK:
+          // TODO: Shift In not currently implemented.
+          break;
+          
+        // Free-running output at rate determined by Timer 2.
+        case SHIFT_OUT_FREE_RUNNING:
+          // This mode is similar to mode 101 in which the shifting rate is determined by T2. However, in mode 100 the
+          // SR Counter does not stop the shifting operation. Since SR7 is re-circulated back into SR0, the eight bits
+          // loaded into the SR will be clocked onto the CB2 line repetitively. In this mode, the SR Counter is disabled
+          // and IRQB is never set.
+          if (shiftClockEnabled) {
+            // Note: In T2 free running mode, shift clock is toggled by Timer 2 section above.
+            // Do we need to shift another bit out?
+            if (shiftClock == 0) {
+              cb2 = (shiftRegister & 0x80) >> 7;
+              shiftRegister = ((shiftRegister << 1) | cb2);
+              shiftCounter = ((shiftCounter + 1) % 8);
+            }
+          }
+          break;
+        
+        // Shift out under control of Timer 2.
+        case SHIFT_OUT_TIMER_2:
+          // In this mode, the shift rate is controlled by T2 (as in mode 100). However, with each read or write of the
+          // SR Counter is reset and eight bits are shifted onto the CB2 line. At the same time, eight shift pulses are
+          // placed on the CB1 line to control shifting in external devices. After the eight shift pulses, the shifting is
+          // disabled, IFR2 is set, and CB2 will remain at the last data level. 
+          if (shiftClockEnabled) {
+            // Note: In T2 control modes, shift clock is toggled by Timer 2 section above.
+            // Do we need to shift another bit out?
+            if (shiftClock == 0) {
+              cb2 = (shiftRegister & 0x80) >> 7;
+              shiftRegister = ((shiftRegister << 1) | cb2);
+              shiftCounter++;
+              if (shiftCounter == 8) {
+                interruptFlagRegister |= SHIFT_SET;
+                updateIFRTopBit();
+                shiftCounter = 0;
+              }
+            }
+          }
+          break;
+        
+        // Shift out under control of the system clock.
+        case SHIFT_OUT_SYSTEM_CLOCK:
+          // In this mode, the shift rate is controlled by the system PHI2 clock (half the frequency, since level changes each clock cycle).
+          if (shiftClockEnabled) {
+            // Toggle shift clock. It is half phase 2 rate.
+            shiftClock ^= 0x01;
+            
+            // Do we need to shift another bit out?
+            if (shiftClock == 0) {
+              cb2 = (shiftRegister & 0x80) >> 7;
+              shiftRegister = ((shiftRegister << 1) | cb2);
+              shiftCounter++;
+              if (shiftCounter == 8) {
+                interruptFlagRegister |= SHIFT_SET;
+                updateIFRTopBit();
+                shiftCounter = 0;
+              }
+            }
+          }
+          break;
+        
+        // Shift out under control of external clock pulses.
+        case SHIFT_OUT_EXTERNAL_CLOCK:
+          // In the mode, shifting is controlled by external pulses applied to the CB1 line. The SR Counter sets IFR2 for
+          // each eight-pulse count, but does not disable the shifting function. Each time the microprocessor reads or
+          // writes the SR, IFR2 is reset and the counter is initialized to begin counting the next eight pulses on the CB1
+          // line. After eight shift pulses, IFR2 is set. The microprocessor can then load the SR with the next eight bits
+          // of data. 
+          // TODO: Not implemented yet.
+          break;
       }
+      
+      // If enabled, ipdate CB1 to the shift clock.
+      if (cb1ClockOutEnabled) {
+        this.cb1 = this.shiftClock;
+      }      
     }
   }
   
@@ -664,13 +791,7 @@ public class Via6522 extends MemoryMappedChip {
    * ORA and DDRA.
    */
   protected void updatePortAPins() {
-    // Any pins that are inputs must be left untouched. 
-    int inputPins = (portAPins & (~dataDirectionRegisterA));
-    
-    // Pins that are outputs should be set to 1 or 0 depending on what is in the ORA.
-    int outputPins = (outputRegisterA & dataDirectionRegisterA);
-    
-    portAPins = inputPins | outputPins; 
+    setPortAPins(portAPins);
   }
   
   /**
@@ -678,13 +799,7 @@ public class Via6522 extends MemoryMappedChip {
    * ORB and DDRB.
    */
   protected void updatePortBPins() {
-    // Any pins that are inputs must be left untouched. 
-    int inputPins = (portBPins & (~dataDirectionRegisterB));
-    
-    // Pins that are outputs should be set to 1 or 0 depending on what is in the ORB.
-    int outputPins = (outputRegisterB & dataDirectionRegisterB);
-    
-    portBPins = inputPins | outputPins;
+    setPortBPins(portBPins);
   }
   
   /**
@@ -697,12 +812,44 @@ public class Via6522 extends MemoryMappedChip {
   }
   
   /**
+   * Attempts to set Port A pins to the given value. Whether to not this is 
+   * successful depends on the data direction register.
+   * 
+   * @param portAPins
+   */
+  public void setPortAPins(int portAPins) {
+    // Any pins that are inputs must be left untouched. 
+    int inputPins = (portAPins & (~dataDirectionRegisterA));
+    
+    // Pins that are outputs should be set to 1 or 0 depending on what is in the ORA.
+    int outputPins = (outputRegisterA & dataDirectionRegisterA);
+    
+    this.portAPins = inputPins | outputPins; 
+  }
+  
+  /**
    * Returns the current values of the Port B pins.
    * 
    * @return the current values of the Port B pins.
    */
   public int getPortBPins() {
     return portBPins;
+  }
+  
+  /**
+   * Attempts to set Port B pins to the given value. Whether to not this is 
+   * successful depends on the data direction register.
+   * 
+   * @param portBPins
+   */
+  public void setPortBPins(int portBPins) {
+    // Any pins that are inputs must be left untouched. 
+    int inputPins = (portBPins & (~dataDirectionRegisterB));
+    
+    // Pins that are outputs should be set to 1 or 0 depending on what is in the ORB.
+    int outputPins = (outputRegisterB & dataDirectionRegisterB);
+    
+    this.portBPins = inputPins | outputPins;
   }
   
   /**

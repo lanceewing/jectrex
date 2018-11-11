@@ -28,7 +28,7 @@ public class Jectrex extends Game {
   private HomeScreen homeScreen;
   
   /**
-   * Invoked by JOric whenever it would like to show a dialog, such as when it needs
+   * Invoked by Jectrex whenever it would like to show a dialog, such as when it needs
    * the user to confirm an action, or to choose a file.
    */
   private DialogHandler dialogHandler;
@@ -39,12 +39,12 @@ public class Jectrex extends Game {
   private String[] args;
   
   /**
-   * JOric's saved preferences.
+   * Jectrex's saved preferences.
    */
   private Preferences preferences;
   
   /**
-   * JOric's application screenshot storage.
+   * Jectrex's application screenshot storage.
    */
   private Preferences screenshotStore;
   
@@ -69,7 +69,7 @@ public class Jectrex extends Game {
     if ((args != null) && (args.length > 0)) {
       AppConfigItem appConfigItem = new AppConfigItem();
       appConfigItem.setFilePath(args[0]);
-      appConfigItem.setFileType("ROM");
+      appConfigItem.setFileType("CART");
       appConfigItem.setFileLocation(FileLocation.ABSOLUTE);
       MachineScreen machineScreen = getMachineScreen();
       machineScreen.initMachine(appConfigItem);
@@ -101,18 +101,18 @@ public class Jectrex extends Game {
   }
   
   /**
-   * Gets the Preferences for JOric.
+   * Gets the Preferences for Jectrex.
    * 
-   * @return The Preferences for JOric.
+   * @return The Preferences for Jectrex.
    */
   public Preferences getPreferences() {
     return preferences;
   }
   
   /**
-   * Gets the screenshot store for JOric. 
+   * Gets the screenshot store for Jectrex. 
    * 
-   * @return The screenshot store for JOric.
+   * @return The screenshot store for Jectrex.
    */
   public Preferences getScreenshotStore() {
     return screenshotStore;

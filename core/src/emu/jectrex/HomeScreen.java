@@ -92,7 +92,7 @@ public class HomeScreen extends InputAdapter implements Screen  {
    * first time. This is the basis for starting to add apps to the home screen.
    */
   private static final String DEFAULT_APP_CONFIG_JSON = 
-      "{\"apps\": [{\"name\": \"BASIC\",\"machineType\": \"PAL\",\"ram\": \"RAM_48K\"}]}";
+      "{\"apps\": [{\"name\": \"Mine Storm\"}]}";
   
   /**
    * Used only for testing, to temporarily replace the Preferences with an already prepared file.
