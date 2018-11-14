@@ -79,14 +79,8 @@ public class Via6522 extends MemoryMappedChip {
   //   1    0    1   Shift out under control of Timer 2.
   //   1    1    0   Shift out under control of the system clock.
   //   1    1    1   Shift out under control of external clock pulses.
-  private static final int SHIFT_REGISTER_DISABLED = 0;
-  private static final int SHIFT_IN_TIMER_2 = 1;
-  private static final int SHIFT_IN_SYSTEM_CLOCK = 2;
-  private static final int SHIFT_IN_EXTERNAL_CLOCK = 3;
+  private static final int SHIFT_DISABLED = 0;
   private static final int SHIFT_OUT_FREE_RUNNING = 4;
-  private static final int SHIFT_OUT_TIMER_2 = 5;
-  private static final int SHIFT_OUT_SYSTEM_CLOCK = 6;
-  private static final int SHIFT_OUT_EXTERNAL_CLOCK = 7;
   
   // Port B
   protected int outputRegisterB;            // Reg 0 WRITE?   (Reg 15 but no handshake)
@@ -112,10 +106,13 @@ public class Via6522 extends MemoryMappedChip {
   
   // Shift Register
   protected int shiftRegister;              // Reg 10
-  protected int shiftClock;                 
+  protected int shiftClock;                 // Internally generated shift clock.
   protected int shiftCounter;               // Keeps track of how many bits have been shifted out.
-  protected boolean timer2Shift;            // Whether timer 2 is controlling shifting or not.
-  protected boolean cb1ClockOutEnabled;     // Whether shift clock out is enabled for CB1.
+  protected boolean shiftingOut;            // If we are currently shifting out.
+  protected boolean timer2Shift;            // If timer 2 shifting mode is active.
+  protected boolean externalClockShift;     // If external clock shifting mode is active.
+  protected boolean systemClockShift;       // If system clock shifting mode is active.
+  protected boolean shiftRegisterWrite;     // Did a shift register write happen in current cycle?
   
   protected int auxiliaryControlRegister;   // Reg 11
   protected int peripheralControlRegister;  // Reg 12
@@ -244,8 +241,14 @@ public class Via6522 extends MemoryMappedChip {
   
       case VIA_REG_10: // Shift Register.
         shiftRegister = value;
-        interruptFlagRegister &= SHIFT_RESET;
-        updateIFRTopBit();
+        shiftRegisterWrite = true;
+        shiftClock = 0;   //1;  // TODO: This seems to work, but relies on the boolean above.
+        // TODO: Does shift counter get reset on every write? Or only if SR IFR flag was previously set?
+        shiftCounter = 0;
+        if ((interruptFlagRegister & SHIFT_SET) != 0) {
+          interruptFlagRegister &= SHIFT_RESET;
+          updateIFRTopBit();
+        }
         break;
   
       case VIA_REG_11: // Auxiliary Control Register.
@@ -253,17 +256,13 @@ public class Via6522 extends MemoryMappedChip {
         timer1PB7Mode = (value & 0x80) >> 7;
         timer1Mode = (value & 0x40) >> 6;
         timer2Mode = (value & 0x20) >> 5;
-        shiftRegisterMode = (value & 0x1C) >> 2;
         portALatchMode = (value & 0x01);
         portBLatchMode = (value & 0x02) >> 1;
-        timer2Shift = (
-            (shiftRegisterMode == SHIFT_IN_TIMER_2) || 
-            (shiftRegisterMode == SHIFT_OUT_FREE_RUNNING) ||
-            (shiftRegisterMode == SHIFT_OUT_TIMER_2));
-        cb1ClockOutEnabled = (
-            (shiftRegisterMode != SHIFT_REGISTER_DISABLED) && 
-            (shiftRegisterMode != SHIFT_IN_EXTERNAL_CLOCK) && 
-            (shiftRegisterMode != SHIFT_OUT_EXTERNAL_CLOCK));
+        shiftRegisterMode = (value & 0x1C) >> 2;
+        externalClockShift = ((shiftRegisterMode & 0x03) == 0x03);
+        systemClockShift = ((shiftRegisterMode & 0x03) == 0x02);
+        timer2Shift = ((shiftRegisterMode & 0x03) <= 0x01) && (shiftRegisterMode != SHIFT_DISABLED);
+        shiftingOut = ((shiftRegisterMode & 0x04) != 0);
         break;
   
       case VIA_REG_12: // Peripheral Control Register.
@@ -477,8 +476,12 @@ public class Via6522 extends MemoryMappedChip {
   
       case VIA_REG_10: // Shift register
         value = shiftRegister;
-        interruptFlagRegister &= SHIFT_RESET;
-        updateIFRTopBit();
+        if ((interruptFlagRegister & SHIFT_SET) != 0) {
+          interruptFlagRegister &= SHIFT_RESET;
+          updateIFRTopBit();
+          shiftCounter = 0;
+          // TODO: Does shiftClock get set to a certain level?
+        }
         break;
   
       case VIA_REG_11: // Auxiliary control register
@@ -592,9 +595,10 @@ public class Via6522 extends MemoryMappedChip {
    * Emulates a single cycle of this VIA chip.
    */
   public void emulateCycle() {
-    // There are only two ways to stop the shift counter and shift clock. One is if the shift
-    // register mode is 000 (SHIFT_REGISTER_DISABLED). The other is if the SR IFR flag is set
-    boolean shiftClockEnabled = ((shiftRegisterMode != 0) && ((interruptFlagRegister & SHIFT_SET) != 0));
+    int prevShiftClock = shiftClock;
+    
+    // Shift clock is disabled if explicitly disabled, or if the SR IFR flag is set, or if we had a write this cycle. 
+    boolean shiftClockEnabled = ((shiftRegisterMode != SHIFT_DISABLED) && ((interruptFlagRegister & SHIFT_SET) == 0) && !shiftRegisterWrite);
     
     // IMPORTANT NOTE: If the timer 1 latch is set to 2 during cycle T0, then on T1 it
     // would have a value of 2, then T2 a value of 1, T3 a value of 0, T4 a value of 0xFFFF
@@ -658,12 +662,12 @@ public class Via6522 extends MemoryMappedChip {
           
           if (timer2Shift) {
             // Timer 2 is currently in control of shift register, which means that 
-            // the T2 latch low should be loaded into T2 counter low.
+            // the T2 latch low should be loaded into T2 counter low byte.
             timer2Counter = timer2Latch | (timer2Counter & 0xFF00);
             
             // For T2 shift control, we toggle the shift clock on each T2 time out.
             if (shiftClockEnabled) {
-              shiftClock ^= 0x01;
+              cb1 = (shiftClock ^= 0x01);
             }
             
           } else {
@@ -682,108 +686,45 @@ public class Via6522 extends MemoryMappedChip {
       timer2Loaded = false;
     }
 
-    // Shift the shift register.
-    if (shiftRegisterMode != 0) {
-      switch (shiftRegisterMode) {
-        case SHIFT_REGISTER_DISABLED:
-          break;
-
-        // Shift in under control of Timer 2.
-        case SHIFT_IN_TIMER_2:
-          // Note: Shift clock is toggled in timer 2 section above.
-          // TODO: Shift In not currently implemented.
-          break;
-        
-        // Shift in under control of system clock.
-        case SHIFT_IN_SYSTEM_CLOCK:
-          if (shiftClockEnabled) {
-            // Toggle shift clock. It is half phase 2 rate.
-            shiftClock ^= 0x01;
-          }
-          // TODO: Shift In not currently implemented.
-          break;
-        
-        // Shift in under control of external clock pulses.
-        case SHIFT_IN_EXTERNAL_CLOCK:
-          // TODO: Shift In not currently implemented.
-          break;
-          
-        // Free-running output at rate determined by Timer 2.
-        case SHIFT_OUT_FREE_RUNNING:
-          // This mode is similar to mode 101 in which the shifting rate is determined by T2. However, in mode 100 the
-          // SR Counter does not stop the shifting operation. Since SR7 is re-circulated back into SR0, the eight bits
-          // loaded into the SR will be clocked onto the CB2 line repetitively. In this mode, the SR Counter is disabled
-          // and IRQB is never set.
-          if (shiftClockEnabled) {
-            // Note: In T2 free running mode, shift clock is toggled by Timer 2 section above.
-            // Do we need to shift another bit out?
-            if (shiftClock == 0) {
-              cb2 = (shiftRegister & 0x80) >> 7;
-              shiftRegister = ((shiftRegister << 1) | cb2);
-              shiftCounter = ((shiftCounter + 1) % 8);
-            }
-          }
-          break;
-        
-        // Shift out under control of Timer 2.
-        case SHIFT_OUT_TIMER_2:
-          // In this mode, the shift rate is controlled by T2 (as in mode 100). However, with each read or write of the
-          // SR Counter is reset and eight bits are shifted onto the CB2 line. At the same time, eight shift pulses are
-          // placed on the CB1 line to control shifting in external devices. After the eight shift pulses, the shifting is
-          // disabled, IFR2 is set, and CB2 will remain at the last data level. 
-          if (shiftClockEnabled) {
-            // Note: In T2 control modes, shift clock is toggled by Timer 2 section above.
-            // Do we need to shift another bit out?
-            if (shiftClock == 0) {
-              cb2 = (shiftRegister & 0x80) >> 7;
-              shiftRegister = ((shiftRegister << 1) | cb2);
-              shiftCounter++;
-              if (shiftCounter == 8) {
-                interruptFlagRegister |= SHIFT_SET;
-                updateIFRTopBit();
-                shiftCounter = 0;
-              }
-            }
-          }
-          break;
-        
-        // Shift out under control of the system clock.
-        case SHIFT_OUT_SYSTEM_CLOCK:
-          // In this mode, the shift rate is controlled by the system PHI2 clock (half the frequency, since level changes each clock cycle).
-          if (shiftClockEnabled) {
-            // Toggle shift clock. It is half phase 2 rate.
-            shiftClock ^= 0x01;
-            
-            // Do we need to shift another bit out?
-            if (shiftClock == 0) {
-              cb2 = (shiftRegister & 0x80) >> 7;
-              shiftRegister = ((shiftRegister << 1) | cb2);
-              shiftCounter++;
-              if (shiftCounter == 8) {
-                interruptFlagRegister |= SHIFT_SET;
-                updateIFRTopBit();
-                shiftCounter = 0;
-              }
-            }
-          }
-          break;
-        
-        // Shift out under control of external clock pulses.
-        case SHIFT_OUT_EXTERNAL_CLOCK:
-          // In the mode, shifting is controlled by external pulses applied to the CB1 line. The SR Counter sets IFR2 for
-          // each eight-pulse count, but does not disable the shifting function. Each time the microprocessor reads or
-          // writes the SR, IFR2 is reset and the counter is initialized to begin counting the next eight pulses on the CB1
-          // line. After eight shift pulses, IFR2 is set. The microprocessor can then load the SR with the next eight bits
-          // of data. 
-          // TODO: Not implemented yet.
-          break;
+    if (shiftClockEnabled) {
+      // Update the shift clock. For TIMER2, shift clock is updated in timer 2 update logic above.
+      if (systemClockShift) {
+        cb1 = (shiftClock ^= 0x01);
+      }
+      else if (externalClockShift) {
+        shiftClock = cb1;
       }
       
-      // If enabled, ipdate CB1 to the shift clock.
-      if (cb1ClockOutEnabled) {
-        this.cb1 = this.shiftClock;
-      }      
+      // We shift out/in when the shift clock has gone LOW.
+      if ((shiftClock == 0) && (shiftClock != prevShiftClock)) {   // TODO: Double check this logic.
+        // Shift OUT the top bit if required.
+        if (shiftingOut) {
+          cb2 = ((shiftRegister & 0x80) >> 7);
+        }
+        
+        // Shift IN CB2 to lowest bit. This also happens for Shift OUT.
+        shiftRegister = ((shiftRegister << 1) | cb2) & 0xFF;
+        
+        // If shift counter has finished shifting out 8 bits, and we're not free running, then set SR IRF.
+        shiftCounter = ((shiftCounter + 1) % 8);
+        if ((shiftCounter == 0) && (shiftRegisterMode != SHIFT_OUT_FREE_RUNNING)) {
+          interruptFlagRegister |= SHIFT_SET;
+          updateIFRTopBit();
+        }
+      }
+      
+//      System.out.println(String.format(
+//          "acr: %s, pcr %s, shiftRegisterMode: %s, shiftRegister: %s, shiftClock: %d, shiftCounter: %d, " + 
+//          "cb2: %d, interruptFlagRegister: %02X, portBPins: %02X, timer1: %04d",
+//          (String.format("%8s", Integer.toBinaryString(auxiliaryControlRegister)).replace(' ', '0')),
+//          (String.format("%8s", Integer.toBinaryString(peripheralControlRegister)).replace(' ', '0')),
+//          (String.format("%3s", Integer.toBinaryString(shiftRegisterMode)).replace(' ', '0')),
+//          (String.format("%8s", Integer.toBinaryString(shiftRegister)).replace(' ', '0')), 
+//          shiftClock, shiftCounter, cb2, interruptFlagRegister, portBPins, timer1Counter));
     }
+
+    // Clear the flag that says we had a SR write this cycle.
+    shiftRegisterWrite = false;
   }
   
   /**
