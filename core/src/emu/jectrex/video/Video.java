@@ -497,7 +497,7 @@ public class Video {
     int deltaY = 0;
     if (zero) {
       deltaX = 16500 - this.xCurrentPosition;
-      deltaX = 20500 - this.yCurrentPosition;
+      deltaY = 20500 - this.yCurrentPosition;
     } else if (ramp) {
       deltaX = this.xAxisIntegrator - this.xyIntegratorOffset;
       deltaY = this.xyIntegratorOffset - this.yAxisSampleAndHold;
@@ -510,32 +510,51 @@ public class Video {
     // TODO: Debug.
     if (xCurrentPosition < minX) {
       minX = xCurrentPosition;
-      System.out.println("minX: " + minX);
+      System.out.println(String.format("minX: %d, maxX: %d, minY: %d, maxY: %d", minX, maxX, minY, maxY));
     }
     if (xCurrentPosition > maxX) {
       maxX = xCurrentPosition;
-      System.out.println("maxX: " + maxX);
+      System.out.println(String.format("minX: %d, maxX: %d, minY: %d, maxY: %d", minX, maxX, minY, maxY));
     }
     if (yCurrentPosition < minY) {
       minY = yCurrentPosition;
-      System.out.println("minY: " + minY);
+      System.out.println(String.format("minX: %d, maxX: %d, minY: %d, maxY: %d", minX, maxX, minY, maxY));
     }
     if (yCurrentPosition > maxY) {
       maxY = yCurrentPosition;
-      System.out.println("maxY: " + maxY);
+      System.out.println(String.format("minX: %d, maxX: %d, minY: %d, maxY: %d", minX, maxX, minY, maxY));
     }
     
-    // TODO: Check that it really is the xyIntegratorOffset that is used as above. (rsh)
+    // minX: -19212, maxX: 51933, minY: -14933, maxY: 56212
+    // X range: 71145  Y range: 71145
+    
+    //System.out.println(String.format("ramp: %s, zero: %s, blank: %s, dacOut: %s, xCurrentPosition: %d, yCurrentPosition: %d, deltaX: %d, deltaY: %d", 
+    //    Boolean.toString(ramp), Boolean.toString(zero), Boolean.toString(blank), dacOut, xCurrentPosition, yCurrentPosition, deltaX, deltaY));
     
     if (!blank) {
       // TODO: Draw line. 
       
       // TODO: Use the scaleFactor (i.e. device by scaleFactor)
       
+      int x = ((xCurrentPosition + 19212) / 297) % 240;   //(71145 / MachineScreen.SCREEN_WIDTH);
+      int y = ((yCurrentPosition + 14933) / 318) % 224;  // (71145 / MachineScreen.SCREEN_HEIGHT);
+      
+      framePixels[y * 240 + x] = palette[7];
+      
     }
     
     if (++currentCycleCount >= CYCLES_PER_FRAME) {
       currentCycleCount = 0;
+      
+      synchronized(frames) {
+        // Mark the current frame as complete.
+        frames[activeFrame].ready = true;
+        
+        // Toggle the active frame.
+        activeFrame = ((activeFrame + 1) % 2);
+        frames[activeFrame].ready = false;
+      }
+      
       frameRenderComplete = true;
       frameCount++;
     }

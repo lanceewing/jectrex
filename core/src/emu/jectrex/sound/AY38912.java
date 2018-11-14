@@ -453,8 +453,8 @@ public class AY38912 {
     if ((sampleBufferOffset += 1) == sampleBuffer.length) {
       try {
         audioDevice.writeSamples(sampleBuffer, 0, sampleBuffer.length);
-      } catch (Exception e) {
-        // An Exception can occur here if the app is closing, so we catch and ignore.
+      } catch (Throwable e) {
+        // An Exception or Error can occur here if the app is closing, so we catch and ignore.
       }
       sampleBufferOffset = 0;
     }

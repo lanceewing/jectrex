@@ -44,8 +44,8 @@ import emu.jectrex.ui.ViewportManager;
  */
 public class MachineScreen implements Screen {
 
-  public static final int SCREEN_HEIGHT = 240;
-  public static final int SCREEN_WIDTH = 224;
+  public static final int SCREEN_HEIGHT = 224;
+  public static final int SCREEN_WIDTH = 240;
   
   
   /**
