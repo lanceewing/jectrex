@@ -217,7 +217,7 @@ public class MachineScreen implements Screen {
     screens[2] = new Texture(screenPixmap, Pixmap.Format.RGB565, false);
     screens[2].setFilter(Texture.TextureFilter.Linear, Texture.TextureFilter.Linear);
     camera = new OrthographicCamera();
-    viewport = new ExtendViewport(((SCREEN_HEIGHT / 4) * 5), SCREEN_HEIGHT, camera);
+    viewport = new ExtendViewport(((SCREEN_HEIGHT / 4) * 3), SCREEN_HEIGHT, camera);    // TODO: Is 3:4 correct?
   }
   
   private long lastLogTime;

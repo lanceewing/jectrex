@@ -1,5 +1,10 @@
 package emu.jectrex.video;
 
+import java.util.ArrayDeque;
+import java.util.TreeMap;
+
+import com.badlogic.gdx.utils.TimeUtils;
+
 import emu.jectrex.MachineScreen;
 import emu.jectrex.io.Via6522;
 
@@ -40,6 +45,17 @@ public class Video {
   private Frame[] frames;
   
   /**
+   * Stores the current active phosphor dots on the screen.
+   */
+  //private ArrayDeque<Phosphor> dots;
+  private TreeMap<Long, Phosphor> dots;
+  
+  /**
+   * The total number of Phosphors created since the emulator started.
+   */
+  private long phosphorCount;
+  
+  /**
    * The index of the active frame within the frames. This will toggle between 0 and 1.
    */
   private int activeFrame;
@@ -51,7 +67,7 @@ public class Video {
    * The current cycle count within the current frame.
    */
   private int currentCycleCount;
-
+  
   /**
    * The Via6522 that controls the analog video.
    */
@@ -80,6 +96,10 @@ public class Video {
     frames[1] = new Frame();
     frames[1].framePixels = new short[(MachineScreen.SCREEN_WIDTH * MachineScreen.SCREEN_HEIGHT)];
     frames[1].ready = false;
+    
+    // TODO: I wonder if a TreeMap keyed on timestamp.
+    //dots = new ArrayDeque<Phosphor>(4096);
+    
   }
   
   //  1) The DAC. (Digital to Analog Convertor)
@@ -507,6 +527,8 @@ public class Video {
     this.xCurrentPosition += deltaX;
     this.yCurrentPosition += deltaY;
     
+    //this.xCurrentPosition >= 0 && this.xCurrentPosition < MAX_X && this.yCurrentPosition >= 0 && this.yCurrentPosition < MAX_Y) {
+
     // TODO: Debug.
     if (xCurrentPosition < minX) {
       minX = xCurrentPosition;
@@ -525,22 +547,50 @@ public class Video {
       System.out.println(String.format("minX: %d, maxX: %d, minY: %d, maxY: %d", minX, maxX, minY, maxY));
     }
     
-    // minX: -19212, maxX: 51933, minY: -14933, maxY: 56212
+    // Actual range: minX: -19212, maxX: 51933, minY: -14933, maxY: 56212
     // X range: 71145  Y range: 71145
     
     //System.out.println(String.format("ramp: %s, zero: %s, blank: %s, dacOut: %s, xCurrentPosition: %d, yCurrentPosition: %d, deltaX: %d, deltaY: %d", 
     //    Boolean.toString(ramp), Boolean.toString(zero), Boolean.toString(blank), dacOut, xCurrentPosition, yCurrentPosition, deltaX, deltaY));
     
     if (!blank) {
-      // TODO: Draw line. 
-      
-      // TODO: Use the scaleFactor (i.e. device by scaleFactor)
-      
-      int x = ((xCurrentPosition + 19212) / 297) % 240;   //(71145 / MachineScreen.SCREEN_WIDTH);
-      int y = ((yCurrentPosition + 14933) / 318) % 224;  // (71145 / MachineScreen.SCREEN_HEIGHT);
-      
-      framePixels[y * 240 + x] = palette[7];
-      
+      if ((xCurrentPosition >= 0) && (xCurrentPosition < MAX_X) && (yCurrentPosition >= 0) && (yCurrentPosition < MAX_Y)) {
+        // TODO: Draw line. 
+        
+        // TODO: Use the scaleFactor (i.e. device by scaleFactor)
+        
+        //int x = ((xCurrentPosition + 19212) / 297) % 240;   //(71145 / MachineScreen.SCREEN_WIDTH);
+        //int y = ((yCurrentPosition + 14933) / 318) % 224;  // (71145 / MachineScreen.SCREEN_HEIGHT);
+        
+        int x = (xCurrentPosition / 138) % 240;   //(33000 / MachineScreen.SCREEN_WIDTH);
+        int y = (yCurrentPosition / 184) % 224;  // (41000 / MachineScreen.SCREEN_HEIGHT);
+        int z = zAxisSampleAndHold;  
+        
+        // TODO: One possibility is to use a queue, like this:  this.dots.add(new Phosphor(x, y, z));
+        
+        // TODO: Use TimeUtils.nanoTime + Z (using persistence rate)
+        
+        // TODO: Question: Look at schematic: Is Z related to the persistence rate? Or is it actually a proper shade? 
+        // TODO: Do we need to actually store the grayscale colour and the timestamp to fade by? Or can Z be used to calculate timestamp?
+        
+        // TODO: ~2000 a frame * 3 frames = 6000 max ? (2.5 frames actually, to give 50ms). Try * 2 to begin with. That is 40ms. 60ms is too much. Vexc uses 33.3 ms
+        
+        // TODO: Compare redrawing dots every frame versus fading out whole texture and drawing only current frame on top.
+        
+        // TODO: Idea: Maybe shift to get approx. 60000
+        int zCycles = ((zAxisSampleAndHold * 60000) / 128);                       // Number of cycles that this Z will fade out after.
+        int adjustedZCycles = zCycles - (CYCLES_PER_FRAME - currentCycleCount);   // Remove the number of cycles left in this frame.
+        // TODO: Above should be adjusted Z. Cycles make no difference.
+        
+        // TODO: Need to work out when this fades by, so render thread can work out what to remove?
+        
+        // TODO: Idea: We could have a sliding collection of pre-created Phosphors, so that we avoid garbage collection.
+        // TODO: This sliding window idea might avoid multi thread issues as well. Things are never actually deleted.
+        this.dots.put(phosphorCount++, new Phosphor(x, y, adjustedZCycles));
+        
+        
+        framePixels[y * 240 + x] = palette[7];
+      }
     }
     
     if (++currentCycleCount >= CYCLES_PER_FRAME) {
@@ -553,6 +603,9 @@ public class Video {
         // Toggle the active frame.
         activeFrame = ((activeFrame + 1) % 2);
         frames[activeFrame].ready = false;
+        
+        System.out.println("dots.size: " + dots.size());
+        dots.clear();
       }
       
       frameRenderComplete = true;
@@ -578,6 +631,22 @@ public class Video {
      * Says whether this frame is ready to be blitted to the GPU.
      */
     boolean ready;
+  }
+  
+  /**
+   * Represents a single Phosphor dot in the Vectrex CRT.
+   */
+  class Phosphor {
+    
+    int x;
+    int y;
+    int z;
+    
+    Phosphor(int x, int y, int z) {
+      this.x = x;
+      this.y = y;
+      this.z = z;
+    }
   }
   
   /**
