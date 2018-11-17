@@ -10,6 +10,7 @@ import emu.jectrex.io.Via6522;
 import emu.jectrex.memory.Memory;
 import emu.jectrex.sound.AY38912;
 import emu.jectrex.video.Video;
+import emu.jectrex.video.Video.Frame;
 
 /**
  * Represents the Vectrex machine.
@@ -221,6 +222,15 @@ public class Machine {
     return video.getFramePixels();
   }
 
+  /**
+   * Gets the currently ready "frame" from the Video circuitry emulation.
+   *  
+   * @return The currently ready Frame. Returns null if there isn't a Frame that is ready yet.
+   */
+  public Frame getFrame() {
+    return video.getFrame();
+  }
+  
   /**
    * Emulates a single machine cycle.
    * 

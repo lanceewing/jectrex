@@ -2,8 +2,6 @@ package emu.jectrex;
 
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
-import java.util.HashMap;
-import java.util.Map;
 
 import com.badlogic.gdx.Application.ApplicationType;
 import com.badlogic.gdx.Gdx;
@@ -19,6 +17,9 @@ import com.badlogic.gdx.graphics.Texture;
 import com.badlogic.gdx.graphics.PixmapIO.PNG;
 import com.badlogic.gdx.graphics.g2d.BitmapFont;
 import com.badlogic.gdx.graphics.g2d.SpriteBatch;
+import com.badlogic.gdx.graphics.glutils.ShaderProgram;
+import com.badlogic.gdx.graphics.glutils.ShapeRenderer;
+import com.badlogic.gdx.graphics.glutils.ShapeRenderer.ShapeType;
 import com.badlogic.gdx.scenes.scene2d.Stage;
 import com.badlogic.gdx.scenes.scene2d.ui.Skin;
 import com.badlogic.gdx.scenes.scene2d.ui.Touchpad;
@@ -31,10 +32,12 @@ import com.badlogic.gdx.utils.viewport.ExtendViewport;
 import com.badlogic.gdx.utils.viewport.Viewport;
 
 import emu.jectrex.config.AppConfigItem;
-import emu.jectrex.sound.AY38912;
 import emu.jectrex.ui.DialogHandler;
 import emu.jectrex.ui.MachineInputProcessor;
 import emu.jectrex.ui.ViewportManager;
+import emu.jectrex.video.Video.Frame;
+import emu.jectrex.video.Video.Phosphor;
+import emu.jectrex.video.Video.Phosphors;
 
 /**
  * The main screen in the Jectrex emulator, i.e. the one that shows the analog
@@ -78,6 +81,11 @@ public class MachineScreen implements Screen {
    * SpriteBatch shared by all rendered components.
    */
   private SpriteBatch batch;
+  
+  /**
+   * ShapeRenderer to draw the phosphors with.
+   */
+  private ShapeRenderer shapeRenderer;
   
   // Currently in use components to support rendering of the Vectrex screen. The objects 
   // that these references point to will change depending on the MachineType.
@@ -124,7 +132,12 @@ public class MachineScreen implements Screen {
     this.machine = new Machine();
     this.machineRunnable = new MachineRunnable(this.machine);
     
+    String vertexShader = Gdx.files.internal("glsl/vertex.glsl").readString();
+    String fragmentShader = Gdx.files.internal("glsl/fragment.glsl").readString();
+    ShaderProgram shaderProgram = new ShaderProgram(vertexShader,fragmentShader);
+    
     batch = new SpriteBatch();
+    shapeRenderer = new ShapeRenderer();// 5000, shaderProgram);
     
     createScreenResources();
     
@@ -217,7 +230,8 @@ public class MachineScreen implements Screen {
     screens[2] = new Texture(screenPixmap, Pixmap.Format.RGB565, false);
     screens[2].setFilter(Texture.TextureFilter.Linear, Texture.TextureFilter.Linear);
     camera = new OrthographicCamera();
-    viewport = new ExtendViewport(((SCREEN_HEIGHT / 4) * 3), SCREEN_HEIGHT, camera);    // TODO: Is 3:4 correct?
+    //viewport = new ExtendViewport(((SCREEN_HEIGHT / 4) * 3), SCREEN_HEIGHT, camera);    // TODO: Is 3:4 correct?
+    viewport = new ExtendViewport(660, 820, camera);
   }
   
   private long lastLogTime;
@@ -226,26 +240,74 @@ public class MachineScreen implements Screen {
   private long renderCount;
   private long drawCount;
   
+  private int addPosition;
+  private int fadePosition;
+  private Phosphor[] dots;
+  
   @Override
   public void render(float delta) {
     long renderStartTime = TimeUtils.nanoTime();
     long fps = Gdx.graphics.getFramesPerSecond();
     long maxFrameDuration = (long)(1000000000L * (fps == 0? 0.016667f : delta));
     boolean draw = false;
+    Phosphors phosphors = null;
     
     if (machine.isPaused()) {
       // When paused, we limit the draw frequency since there isn't anything to change.
       draw = ((fps < 30) || ((renderCount % (fps/30)) == 0));
       
     } else {
-      // Check if the Machine has a frame ready to be displayed.
-      short[] framePixels = machine.getFramePixels();
-      if (framePixels != null) {
+      Frame frame = machine.getFrame();
+      if (frame != null) {
         // If it does then update the Texture on the GPU.
-        BufferUtils.copy(framePixels, 0, screenPixmap.getPixels(), SCREEN_WIDTH * SCREEN_HEIGHT);
+        BufferUtils.copy(frame.framePixels, 0, screenPixmap.getPixels(), SCREEN_WIDTH * SCREEN_HEIGHT);
         screens[updateScreen].draw(screenPixmap, 0, 0);
         updateScreen = (updateScreen + 1) % 3;
         drawScreen = (drawScreen + 1) % 3;
+        
+        phosphors = frame.phosphors;
+        
+//        addPosition = phosphors.getAddPosition();
+//        fadePosition = phosphors.getFadePosition();
+//        int maxDots = Phosphors.NUM_OF_PHOSPHORS;
+//        boolean foundNewFadePosition = false;
+//        dots = phosphors.getDots();
+//        int addPosition = phosphors.getAddPosition();
+//        int fadePosition = phosphors.getFadePosition();
+//        int maxDots = Phosphors.NUM_OF_PHOSPHORS;
+//        boolean foundNewFadePosition = false;
+//        Phosphor[] dots = phosphors.getDots();
+//        int dotDrawCount = 0;
+//        
+//        for (int i=fadePosition; i != addPosition; i = ((i + 1) % maxDots)) {
+//          Phosphor dot = dots[i];
+//          
+//          if (dot.z > 0) {
+//            // If Z is greater than 0, then it is still visible, so draw it; otherwise ignore.
+//            // TODO: Draw dot.
+//            dotDrawCount++;
+//            
+//            // Reduce Z for this dot by 64, which is the number of Z levels faded for a single frame.
+//            dot.z -= 64;
+//            
+//            if (dot.z <= 0) {
+//              // If this dot's Z is below zero, and we haven't yet found a new fade position, we 
+//              // adjust the fade position to the dot after this one.
+//              if (!foundNewFadePosition) {
+//                fadePosition = i + 1;
+//              }
+//            } else {
+//              // When we find the first Z position still above 0, we stop adjusting the fade position.
+//              foundNewFadePosition = true;
+//            }
+//          }
+//        }
+//        
+//        phosphors.setFadePosition(fadePosition % maxDots);
+        
+//        System.out.println(String.format(
+//            "addPosition: %d, fadePosition: %d, numOfDots: %d, lastDotZ: %d, firstDotZ: %d",
+//            addPosition, fadePosition, dotDrawCount, dots[fadePosition].z, dots[addPosition-1].z));
       }
       
       draw = true;
@@ -253,7 +315,7 @@ public class MachineScreen implements Screen {
     
     if (draw) {
       drawCount++;
-      draw(delta);
+      draw(delta, phosphors);
       long drawDuration = TimeUtils.nanoTime() - renderStartTime;
       if (renderCount == 0) {
         avgDrawTime = drawDuration;
@@ -279,28 +341,106 @@ public class MachineScreen implements Screen {
     }
   }
 
-  private void draw(float delta) {
+  private void draw(float delta, Phosphors phosphors) {
     // Get the KeyboardType currently being used by the MachineScreenProcessor.
     KeyboardType keyboardType = machineInputProcessor.getKeyboardType();
     
     Gdx.gl.glClearColor(0, 0, 0, 1);
     Gdx.gl.glClear(GL20.GL_COLOR_BUFFER_BIT);
     
+    // This allows the alpha channel to work on setColor
+    Gdx.gl.glEnable(GL20.GL_BLEND);
+    Gdx.gl.glBlendFunc(GL20.GL_SRC_ALPHA, GL20.GL_ONE_MINUS_SRC_ALPHA);
+    
     // Render the Vectrex screen.
     camera.update();
-    batch.setProjectionMatrix(camera.combined);
-    batch.disableBlending();
-    batch.begin();
-    Color c = batch.getColor();
-    batch.setColor(c.r, c.g, c.b, 1f);
-    batch.draw(screens[drawScreen], 
-        0, 0,
-        machine.getScreenWidth(), machine.getScreenHeight(), 
-        machine.getScreenLeft(), machine.getScreenTop(), 
-        SCREEN_WIDTH, 
-        SCREEN_HEIGHT, 
-        false, false);
-    batch.end();
+    
+//    batch.setProjectionMatrix(camera.combined);
+//    batch.disableBlending();
+//    batch.begin();
+//    Color c = batch.getColor();
+//    batch.setColor(c.r, c.g, c.b, 1f);
+////    batch.draw(screens[drawScreen], 
+////        0, 0,
+////        machine.getScreenWidth(), machine.getScreenHeight(), 
+////        machine.getScreenLeft(), machine.getScreenTop(), 
+////        SCREEN_WIDTH, 
+////        SCREEN_HEIGHT, 
+////        false, false);
+//    batch.end();      int addPosition = phosphors.getAddPosition();
+    
+    shapeRenderer.setProjectionMatrix(camera.combined);
+    shapeRenderer.begin(ShapeType.Filled);
+    shapeRenderer.setColor(Color.YELLOW);
+    
+    Color c = Color.WHITE;
+    
+    if (phosphors != null) {
+      addPosition = phosphors.getAddPosition();
+      fadePosition = phosphors.getFadePosition();
+      dots = phosphors.getDots();
+    }
+    
+    int maxDots = Phosphors.NUM_OF_PHOSPHORS;
+    boolean foundNewFadePosition = false;
+    int dotDrawCount = 0;
+    
+    for (int i=fadePosition; i != addPosition; i = ((i + 1) % maxDots)) {
+      Phosphor dot = dots[i];
+      
+      if (dot.z > 0) {
+        // If Z is greater than 0, then it is still visible, so draw it; otherwise ignore.
+        dotDrawCount++;
+        
+        int x = (dot.x / 50) % 660;   //(33000 / MachineScreen.SCREEN_WIDTH);
+        int y = (dot.y / 50) % 820;  // (41000 / MachineScreen.SCREEN_HEIGHT);
+        
+        //shapeRenderer.point(x, y, 100);//circle(x, y, 2);
+        float zz = ((float)dot.z / (float)192);
+        //shapeRenderer.setColor(zz, zz, zz, zz);
+        
+        //if (dot.z > 64) {
+        shapeRenderer.setColor(1.0f, 1.0f, 1.0f, zz * 0.03f);
+        shapeRenderer.circle(x - 200, -y + 235, 6);
+        //}
+        if (dot.z > 32) {
+        shapeRenderer.setColor(1.0f, 1.0f, 1.0f, zz * 0.1f);
+        shapeRenderer.circle(x - 200, -y + 235, 3);
+        }
+        if (dot.z > 64) {
+        shapeRenderer.setColor(1.0f, 1.0f, 1.0f, zz * 0.2f);
+        shapeRenderer.circle(x - 200, -y + 235, 1);
+        }
+        
+        
+        //shapeRenderer.line(x, y, x, y);
+        //shapeRenderer.circle(dot.x, dot.y, 1);
+
+        // Reduce Z for this dot by 64, which is the number of Z levels faded for a single frame.
+        dot.z -= (dot.z / 2); //64;
+        
+        if (dot.z <= 0) {
+          // If this dot's Z is below zero, and we haven't yet found a new fade position, we 
+          // adjust the fade position to the dot after this one.
+          if (!foundNewFadePosition) {
+            fadePosition = i + 1;
+          }
+        } else {
+          // When  we find the first Z position still above 0, we stop adjusting the fade position.
+          foundNewFadePosition = true;
+        }
+      }
+    }
+      
+    if (phosphors != null) {
+      phosphors.setFadePosition(fadePosition % maxDots);
+    }
+      
+//      System.out.println(String.format(
+//          "addPosition: %d, fadePosition: %d, numOfDots: %d, lastDotZ: %d, firstDotZ: %d",
+//          addPosition, fadePosition, dotDrawCount, dots[fadePosition].z, dots[addPosition-1].z));
+    
+    shapeRenderer.end();
 
     // Render the UI elements, e.g. the keyboard and joystick icons.
     viewportManager.getCurrentCamera().update();

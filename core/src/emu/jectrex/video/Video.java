@@ -47,13 +47,7 @@ public class Video {
   /**
    * Stores the current active phosphor dots on the screen.
    */
-  //private ArrayDeque<Phosphor> dots;
-  private TreeMap<Long, Phosphor> dots;
-  
-  /**
-   * The total number of Phosphors created since the emulator started.
-   */
-  private long phosphorCount;
+  private Phosphors phosphors;
   
   /**
    * The index of the active frame within the frames. This will toggle between 0 and 1.
@@ -89,17 +83,18 @@ public class Video {
       this.scaleFactor = scaleY;
     }
     
+    phosphors = new Phosphors();
+    
     frames = new Frame[2];
     frames[0] = new Frame();
     frames[0].framePixels = new short[(MachineScreen.SCREEN_WIDTH * MachineScreen.SCREEN_HEIGHT)];
+    frames[0].phosphors = phosphors;
     frames[0].ready = false;
+    
     frames[1] = new Frame();
     frames[1].framePixels = new short[(MachineScreen.SCREEN_WIDTH * MachineScreen.SCREEN_HEIGHT)];
+    frames[1].phosphors = phosphors;
     frames[1].ready = false;
-    
-    // TODO: I wonder if a TreeMap keyed on timestamp.
-    //dots = new ArrayDeque<Phosphor>(4096);
-    
   }
   
   //  1) The DAC. (Digital to Analog Convertor)
@@ -530,22 +525,22 @@ public class Video {
     //this.xCurrentPosition >= 0 && this.xCurrentPosition < MAX_X && this.yCurrentPosition >= 0 && this.yCurrentPosition < MAX_Y) {
 
     // TODO: Debug.
-    if (xCurrentPosition < minX) {
-      minX = xCurrentPosition;
-      System.out.println(String.format("minX: %d, maxX: %d, minY: %d, maxY: %d", minX, maxX, minY, maxY));
-    }
-    if (xCurrentPosition > maxX) {
-      maxX = xCurrentPosition;
-      System.out.println(String.format("minX: %d, maxX: %d, minY: %d, maxY: %d", minX, maxX, minY, maxY));
-    }
-    if (yCurrentPosition < minY) {
-      minY = yCurrentPosition;
-      System.out.println(String.format("minX: %d, maxX: %d, minY: %d, maxY: %d", minX, maxX, minY, maxY));
-    }
-    if (yCurrentPosition > maxY) {
-      maxY = yCurrentPosition;
-      System.out.println(String.format("minX: %d, maxX: %d, minY: %d, maxY: %d", minX, maxX, minY, maxY));
-    }
+//    if (xCurrentPosition < minX) {
+//      minX = xCurrentPosition;
+//      System.out.println(String.format("minX: %d, maxX: %d, minY: %d, maxY: %d", minX, maxX, minY, maxY));
+//    }
+//    if (xCurrentPosition > maxX) {
+//      maxX = xCurrentPosition;
+//      System.out.println(String.format("minX: %d, maxX: %d, minY: %d, maxY: %d", minX, maxX, minY, maxY));
+//    }
+//    if (yCurrentPosition < minY) {
+//      minY = yCurrentPosition;
+//      System.out.println(String.format("minX: %d, maxX: %d, minY: %d, maxY: %d", minX, maxX, minY, maxY));
+//    }
+//    if (yCurrentPosition > maxY) {
+//      maxY = yCurrentPosition;
+//      System.out.println(String.format("minX: %d, maxX: %d, minY: %d, maxY: %d", minX, maxX, minY, maxY));
+//    }
     
     // Actual range: minX: -19212, maxX: 51933, minY: -14933, maxY: 56212
     // X range: 71145  Y range: 71145
@@ -578,16 +573,21 @@ public class Video {
         // TODO: Compare redrawing dots every frame versus fading out whole texture and drawing only current frame on top.
         
         // TODO: Idea: Maybe shift to get approx. 60000
-        int zCycles = ((zAxisSampleAndHold * 60000) / 128);                       // Number of cycles that this Z will fade out after.
-        int adjustedZCycles = zCycles - (CYCLES_PER_FRAME - currentCycleCount);   // Remove the number of cycles left in this frame.
+        //int zCycles = ((zAxisSampleAndHold * 60000) / 128);                       // Number of cycles that this Z will fade out after.
+        
+        //int adjustedZCycles = zCycles - (CYCLES_PER_FRAME - currentCycleCount);   // Remove the number of cycles left in this frame.
         // TODO: Above should be adjusted Z. Cycles make no difference.
+        
+        int adjustedZ = 64 + (zAxisSampleAndHold - ((64 * currentCycleCount) / CYCLES_PER_FRAME));    // Reduce Z by how far into current frame we are.
+        //System.out.println("zAxisSampleAndHold: " + zAxisSampleAndHold + ", currentCycleCount: " + currentCycleCount + ", adjustedZ: " + adjustedZ);
         
         // TODO: Need to work out when this fades by, so render thread can work out what to remove?
         
         // TODO: Idea: We could have a sliding collection of pre-created Phosphors, so that we avoid garbage collection.
         // TODO: This sliding window idea might avoid multi thread issues as well. Things are never actually deleted.
-        this.dots.put(phosphorCount++, new Phosphor(x, y, adjustedZCycles));
+        //this.dots.put(phosphorCount++, new Phosphor(x, y, adjustedZCycles));
         
+        phosphors.add(xCurrentPosition, yCurrentPosition, adjustedZ);
         
         framePixels[y * 240 + x] = palette[7];
       }
@@ -600,12 +600,15 @@ public class Video {
         // Mark the current frame as complete.
         frames[activeFrame].ready = true;
         
+        // TODO: This frame toggle can happen multiple times between screen renders.
+        
         // Toggle the active frame.
+        // TODO: System.out.println("Toggle frame. ");
         activeFrame = ((activeFrame + 1) % 2);
         frames[activeFrame].ready = false;
         
-        System.out.println("dots.size: " + dots.size());
-        dots.clear();
+        //System.out.println("dots.size: " + dots.size());
+        //dots.clear();
       }
       
       frameRenderComplete = true;
@@ -620,33 +623,90 @@ public class Video {
   /**
    * Represents the data for one video frame.
    */
-  class Frame {
+  public class Frame {
     
     /**
      * Holds the pixel data for the TV frame screen.
      */
-    short framePixels[];
+    public short framePixels[];
     
     /**
      * Says whether this frame is ready to be blitted to the GPU.
      */
-    boolean ready;
+    public boolean ready;
+    
+    /**
+     * Holds the phosphors for the CRT frame. Shared with other frames, due to persistence of phosphors.
+     */
+    public Phosphors phosphors;
+  }
+  
+  /**
+   * Holds all phosphor dots in the Vectrex CRT. Maintains a sliding window of the currently
+   * active phosphors. The Video emulation adds new phosphors at the "add" position. The
+   * MachineScreen renders dots from current fadePosition to the addPosition, then adjusts
+   * the fadePosition.
+   */
+  public class Phosphors {
+    
+    public static final int NUM_OF_PHOSPHORS = 30000;
+    
+    private Phosphor[] dots;
+    
+    // Only altered by add method, which is only called by this Video class.
+    private int addPosition;
+    
+    // Only latered by setFadePosition, which is only called by rendering code in MachineScreen.
+    private int fadePosition;
+    
+    // The total number of Phosphors created since the emulator started. More for debug than anything else.
+    long phosphorCount;
+    
+    Phosphors() {
+      dots = new Phosphor[NUM_OF_PHOSPHORS];
+      
+      // We create all of the Phosphor objects at startup and then simply reuse them
+      // in a sliding window. Avoids object creation and garbage collection overheads.
+      for (int i=0; i < NUM_OF_PHOSPHORS; i++) {
+        dots[i] = new Phosphor();
+      }
+    }
+    
+    void add(int x, int y, int z) {
+      Phosphor phosphor = dots[addPosition];
+      phosphor.x = x;
+      phosphor.y = y;
+      phosphor.z = z;
+      // As soon as we adjust addPosition, the phosphor becomes active.
+      addPosition = ((addPosition + 1) % NUM_OF_PHOSPHORS);
+      phosphorCount++;   // TODO: Remove at some point. This is mainly for interest when debugging and optimising.
+    }
+    
+    public int getAddPosition() {
+      return addPosition;
+    }
+    
+    public int getFadePosition() {
+      return fadePosition;
+    }
+    
+    public Phosphor[] getDots() {
+      return dots;
+    }
+    
+    public void setFadePosition(int newFadePosition) {
+      // TODO: Note that there can be gaps between fade position and add position where a phosphor has already faded (i.e. z == 0)
+      fadePosition = (newFadePosition % NUM_OF_PHOSPHORS);
+    }    
   }
   
   /**
    * Represents a single Phosphor dot in the Vectrex CRT.
    */
-  class Phosphor {
-    
-    int x;
-    int y;
-    int z;
-    
-    Phosphor(int x, int y, int z) {
-      this.x = x;
-      this.y = y;
-      this.z = z;
-    }
+  public class Phosphor {
+    public int x;
+    public int y;
+    public int z;
   }
   
   /**
@@ -666,4 +726,17 @@ public class Video {
     return framePixels;
   }
   
+  public Frame getFrame() {
+    Frame frame = null;
+    synchronized (frames) {
+      Frame nonActiveFrame = frames[((activeFrame + 1) % 2)];
+      if (nonActiveFrame.ready) {
+        nonActiveFrame.ready = false;
+        frame = nonActiveFrame;
+        //System.out.print("dotCount: " + frame.phosphors.phosphorCount + ", ");
+        frame.phosphors.phosphorCount = 0;
+      }
+    }
+    return frame;
+  }
 }
