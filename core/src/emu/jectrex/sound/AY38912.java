@@ -4,6 +4,7 @@ import com.badlogic.gdx.Gdx;
 import com.badlogic.gdx.audio.AudioDevice;
 import com.badlogic.gdx.utils.GdxRuntimeException;
 
+import emu.jectrex.io.Joystick;
 import emu.jectrex.io.Via6522;
 
 /**
@@ -82,27 +83,19 @@ public class AY38912 {
   private Via6522 via;
   
   /**
-   * Constructor for AY38912.
+   * The Joystick from which the AY-3-8912 gets the switch status.
    */
-  public AY38912() {
-  }
+  private Joystick joystick;
 
   /**
    * Constructor for AY38912PSG.
    * 
    * @param via The 6522 VIA chip that the register data comes from.
+   * @param joystick The Joystick from which the AY-3-8912 gets the switch status.
    */
-  public AY38912(Via6522 via) {
-    init(via);
-  }
-  
-  /**
-   * Initialise the AY38912 PSG.
-   * 
-   * @param via The 6522 VIA chip that the register data comes from.
-   */
-  public void init(Via6522 via) {
+  public AY38912(Via6522 via, Joystick joystick) {
     this.via = via;
+    this.joystick = joystick;
     
     updateStep = (int) (((long)step * 8L * (long)SAMPLE_RATE) / (long)CLOCK_FREQ);
     output = new int[] { 0, 0, 0, 0xFF };
@@ -210,7 +203,11 @@ public class AY38912 {
    * @return The value stored in the register.
    */
   public int readRegister(int address) {
-    return registers[address];
+    if (address == 14) {
+      return joystick.getButtonState();
+    } else {
+      return registers[address];
+    }
   }
 
   /**

@@ -231,7 +231,9 @@ public class MachineScreen implements Screen {
     screens[2].setFilter(Texture.TextureFilter.Linear, Texture.TextureFilter.Linear);
     camera = new OrthographicCamera();
     //viewport = new ExtendViewport(((SCREEN_HEIGHT / 4) * 3), SCREEN_HEIGHT, camera);    // TODO: Is 3:4 correct?
-    viewport = new ExtendViewport(660, 820, camera);
+    //viewport = new ExtendViewport(660, 820, camera);
+    viewport = new ExtendViewport(3300, 4100, camera);
+    //viewport = new ExtendViewport(6600, 8200, camera);
   }
   
   private long lastLogTime;
@@ -383,41 +385,49 @@ public class MachineScreen implements Screen {
     
     int maxDots = Phosphors.NUM_OF_PHOSPHORS;
     boolean foundNewFadePosition = false;
-    int dotDrawCount = 0;
     
     for (int i=fadePosition; i != addPosition; i = ((i + 1) % maxDots)) {
       Phosphor dot = dots[i];
       
       if (dot.z > 0) {
         // If Z is greater than 0, then it is still visible, so draw it; otherwise ignore.
-        dotDrawCount++;
         
-        int x = (dot.x / 50) % 660;   //(33000 / MachineScreen.SCREEN_WIDTH);
-        int y = (dot.y / 50) % 820;  // (41000 / MachineScreen.SCREEN_HEIGHT);
+        //int x = (dot.x / 50) % 660;   //(33000 / MachineScreen.SCREEN_WIDTH);
+        //int y = (dot.y / 50) % 820;  // (41000 / MachineScreen.SCREEN_HEIGHT);
+        
+        int x = (dot.x / 10) % 3300;   //(33000 / MachineScreen.SCREEN_WIDTH);
+        int y = (dot.y / 10) % 4100;  // (41000 / MachineScreen.SCREEN_HEIGHT);
+        
+        //int x = (dot.x / 5) % 6600;   //(33000 / MachineScreen.SCREEN_WIDTH);
+        //int y = (dot.y / 5) % 8200;  // (41000 / MachineScreen.SCREEN_HEIGHT);
         
         //shapeRenderer.point(x, y, 100);//circle(x, y, 2);
-        float zz = ((float)dot.z / (float)192);
+        float zz = ((float)dot.z / (float)255);
         //shapeRenderer.setColor(zz, zz, zz, zz);
         
-        //if (dot.z > 64) {
-        shapeRenderer.setColor(1.0f, 1.0f, 1.0f, zz * 0.03f);
-        shapeRenderer.circle(x - 200, -y + 235, 6);
+        //int xOffset = 200;   // 660 x 820
+        int xOffset = 1500;    // 3300 x 4100
+        //int xOffset = 3100;    // 6600 x 8200
+        
+//        //if (dot.z > 64) {
+//        shapeRenderer.setColor(1.0f, 1.0f, 1.0f, 0.1f);//zz * 0.1f);
+//        shapeRenderer.circle(x - xOffset, -y + 235, 6);
+//        //}
+//        //if (dot.z > 32) {
+//        shapeRenderer.setColor(1.0f, 1.0f, 1.0f, 0.3f);//zz * 0.3f);
+//        shapeRenderer.circle(x - xOffset, -y + 235, 3);
+//        //}
+//        //if (dot.z > 64) {
+        shapeRenderer.setColor(1.0f, 1.0f, 1.0f, zz);//0.5f); //zz * 1.0f);
+        shapeRenderer.circle(x - xOffset, -y + 235, 6);
         //}
-        if (dot.z > 32) {
-        shapeRenderer.setColor(1.0f, 1.0f, 1.0f, zz * 0.1f);
-        shapeRenderer.circle(x - 200, -y + 235, 3);
-        }
-        if (dot.z > 64) {
-        shapeRenderer.setColor(1.0f, 1.0f, 1.0f, zz * 0.2f);
-        shapeRenderer.circle(x - 200, -y + 235, 1);
-        }
-        
-        
+          
+          
         //shapeRenderer.line(x, y, x, y);
         //shapeRenderer.circle(dot.x, dot.y, 1);
 
         // Reduce Z for this dot by 64, which is the number of Z levels faded for a single frame.
-        dot.z -= (dot.z / 2); //64;
+        dot.z -= 48;// (dot.z / 2); //64;
         
         if (dot.z <= 0) {
           // If this dot's Z is below zero, and we haven't yet found a new fade position, we 

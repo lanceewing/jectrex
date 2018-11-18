@@ -158,13 +158,20 @@ public class Via6522 extends MemoryMappedChip {
   private Cpu6809 cpu6809;
   
   /**
+   * he Joystick to check the COMPARE line for when it builds the Port B value when read.
+   */
+  private Joystick joystick;
+  
+  /**
    * Constructor for Via6522.
    * 
    * @param cpu6809 The CPU that the VIA is connected to. This is where VIA IRQ signals will be sent.
+   * @param joystick The Joystick to check the COMPARE line for when it builds the Port B value when read.
    */
-  public Via6522(Cpu6809 cpu6809) {
+  public Via6522(Cpu6809 cpu6809, Joystick joystick) {
     this.autoResetIrq = true;
     this.cpu6809 = cpu6809;
+    this.joystick = joystick;
   }
   
   /**
@@ -774,7 +781,7 @@ public class Via6522 extends MemoryMappedChip {
    * @return the current values of the Port B pins.
    */
   public int getPortBPins() {
-    return portBPins;
+    return (portBPins & 0xDF) | (joystick.getCompare()? 0x20 : 0x00);
   }
   
   /**

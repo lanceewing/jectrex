@@ -6,6 +6,7 @@ import java.util.TreeMap;
 import com.badlogic.gdx.utils.TimeUtils;
 
 import emu.jectrex.MachineScreen;
+import emu.jectrex.io.Joystick;
 import emu.jectrex.io.Via6522;
 
 /**
@@ -66,22 +67,21 @@ public class Video {
    * The Via6522 that controls the analog video.
    */
   private Via6522 via;
+
+  /**
+   * The Joystick that shares the Video circuitry's MUX.
+   */
+  private Joystick joystick;
   
   /**
    * Constructor for Video.
    * 
    * @param via The Via6522 that controls the analog video.
+   * @param joystick The Joystick that shares the Video circuitry's MUX.
    */
-  public Video(Via6522 via) {
+  public Video(Via6522 via, Joystick joystick) {
     this.via = via;
-    
-    int scaleX = MAX_X / MachineScreen.SCREEN_WIDTH;
-    int scaleY = MAX_Y / MachineScreen.SCREEN_HEIGHT;
-    if (scaleX > scaleY) {
-      this.scaleFactor = scaleX;
-    } else {
-      this.scaleFactor = scaleY;
-    }
+    this.joystick = joystick;
     
     phosphors = new Phosphors();
     
@@ -442,7 +442,11 @@ public class Video {
   private int xyIntegratorOffset;
   private int xCurrentPosition;
   private int yCurrentPosition;
-  private int scaleFactor;
+  private int xLastPosition;
+  private int yLastPosition;
+  private int zLastPosition;
+  private boolean lastBlank;
+  
   /**
    * 
    * 
@@ -506,6 +510,9 @@ public class Video {
         default: // Ignore.
           break;
       }
+      
+      // The MUX is shared by the Joystick direction circuitry.
+      joystick.processMux(muxChannelSelect, dacOut);
     }
     
     int deltaX = 0;
@@ -578,7 +585,7 @@ public class Video {
         //int adjustedZCycles = zCycles - (CYCLES_PER_FRAME - currentCycleCount);   // Remove the number of cycles left in this frame.
         // TODO: Above should be adjusted Z. Cycles make no difference.
         
-        int adjustedZ = 64 + (zAxisSampleAndHold - ((64 * currentCycleCount) / CYCLES_PER_FRAME));    // Reduce Z by how far into current frame we are.
+        int adjustedZ = 128 + (zAxisSampleAndHold - ((64 * currentCycleCount) / CYCLES_PER_FRAME));    // Reduce Z by how far into current frame we are.
         //System.out.println("zAxisSampleAndHold: " + zAxisSampleAndHold + ", currentCycleCount: " + currentCycleCount + ", adjustedZ: " + adjustedZ);
         
         // TODO: Need to work out when this fades by, so render thread can work out what to remove?
@@ -704,9 +711,17 @@ public class Video {
    * Represents a single Phosphor dot in the Vectrex CRT.
    */
   public class Phosphor {
+    
     public int x;
     public int y;
     public int z;
+    
+    public int lastX;
+    public int lastY;
+    public int lastZ;
+    
+    public boolean start;
+    
   }
   
   /**

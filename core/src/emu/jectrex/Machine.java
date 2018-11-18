@@ -103,14 +103,13 @@ public class Machine {
     joystick = new Joystick();
     
     // Create the VIA chip.
-    via = new Via6522(cpu);
+    via = new Via6522(cpu, joystick);
     
     // Create the analog vector video component.
-    video = new Video(via);
+    video = new Video(via, joystick);
     
     // Initialise the AY-3-8912 PSG
-    psg = new AY38912();
-    psg.init(via);
+    psg = new AY38912(via, joystick);
     
     // Now we create the memory, which will include mapping the VIA chip, and 
     // the creation of RAM chips and ROM chips.

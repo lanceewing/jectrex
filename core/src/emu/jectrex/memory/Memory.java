@@ -69,7 +69,7 @@ public class Memory {
     // E000-FFFF System ROM Space 8Kx8 (r/w)
     // E000-EFFF is ROM, the built in game MINE STORM.
     // F000-FFFF Executive (power-up / reset handler and a large selection of subroutines for drawing, calculation, game logic and / or hardware maintenance)
-    mapChipToMemory(new RomChip(convertByteArrayToIntArray(Gdx.files.internal("roms/system.bin").readBytes())), 0xE000, 0xFFFF);
+    mapChipToMemory(new RomChip(convertByteArrayToIntArray(Gdx.files.internal("roms/fast_boot.bin").readBytes())), 0xE000, 0xFFFF);
   }
   
   /**
