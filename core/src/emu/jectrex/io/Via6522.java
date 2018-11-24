@@ -98,6 +98,7 @@ public class Via6522 extends MemoryMappedChip {
   protected int timer1Counter;
   protected int timer1Latch;
   protected boolean timer1Loaded;
+  protected int timer1Pb7;                  // PB7 Timer 1 output is completely independent of Port B bit 7.
   
   // Timer 2
   protected int timer2Counter;
@@ -137,6 +138,21 @@ public class Via6522 extends MemoryMappedChip {
   protected int cb2;
   
   /**
+   * Used for controlling the automatic CA2 pulse on read/write when in CA2 pulse mode.
+   */
+  private int ca2PulseModeCount;
+  
+  /**
+   * Used for controlling the automatic CB2 pulse on read/write when in CB2 pulse mode.
+   */
+  private int cb2PulseModeCount;
+  
+  /**
+   * Used for controlling the automatic start of PB7 pulse on write to Port B when in PB7 pulse mode.
+   */
+  private boolean pb7DelayedPulseStart;
+  
+  /**
    * This flag is set to true when timer1 is operating in the one shot mode and
    * has just decremented through zero, i.e. is 0xFFFF.
    */
@@ -148,19 +164,14 @@ public class Via6522 extends MemoryMappedChip {
   private boolean timer2HasShot;
   
   /**
-   * Whether to reset the IRQ signal when the IRQ flags reset.
-   */
-  private boolean autoResetIrq;
-  
-  /**
    * The CPU that is connected to the VIA. This is where the VIA IRQ signals will be sent.
    */
-  private Cpu6809 cpu6809;
+  protected Cpu6809 cpu6809;
   
   /**
    * he Joystick to check the COMPARE line for when it builds the Port B value when read.
    */
-  private Joystick joystick;
+  protected Joystick joystick;
   
   /**
    * Constructor for Via6522.
@@ -169,7 +180,6 @@ public class Via6522 extends MemoryMappedChip {
    * @param joystick The Joystick to check the COMPARE line for when it builds the Port B value when read.
    */
   public Via6522(Cpu6809 cpu6809, Joystick joystick) {
-    this.autoResetIrq = true;
     this.cpu6809 = cpu6809;
     this.joystick = joystick;
   }
@@ -190,6 +200,12 @@ public class Via6522 extends MemoryMappedChip {
         break;
 
       case VIA_REG_1: // ORA/IRA
+        if (ca2ControlMode == OUTPUT_MODE_HANDSHAKE) {
+          ca2 = 0;
+        }
+        else if (ca2ControlMode == OUTPUT_MODE_PULSE) {
+          ca2PulseModeCount = 1;
+        }
         outputRegisterA = value;
         updatePortAPins();
         interruptFlagRegister &= CA1_AND_2_RESET;
@@ -207,7 +223,6 @@ public class Via6522 extends MemoryMappedChip {
         break;
         
       case VIA_REG_4: // Timer 1 low-order counter (WRITE sets low-order latch)
-        //timer1LatchLow = value;
         timer1Latch = (timer1Latch & 0xFF00 | (value & 0xFF));
         break;
   
@@ -219,8 +234,8 @@ public class Via6522 extends MemoryMappedChip {
         updateIFRTopBit();
         timer1HasShot = false;
         if (timer1PB7Mode == 1) {
-          // Clear PB7 if timer 1 PB7 mode is set.
-          this.portBPins &= 0x7F;
+          // Clear PB7 if timer 1 PB7 mode is set. Delayed until end of cycle.
+          pb7DelayedPulseStart = true;
         }
         break;
   
@@ -249,10 +264,10 @@ public class Via6522 extends MemoryMappedChip {
       case VIA_REG_10: // Shift Register.
         shiftRegister = value;
         shiftRegisterWrite = true;
-        shiftClock = 0;   //1;  // TODO: This seems to work, but relies on the boolean above.
         // TODO: Does shift counter get reset on every write? Or only if SR IFR flag was previously set?
-        shiftCounter = 0;
         if ((interruptFlagRegister & SHIFT_SET) != 0) {
+          shiftCounter = 0;
+          shiftClock = 0;
           interruptFlagRegister &= SHIFT_RESET;
           updateIFRTopBit();
         }
@@ -429,6 +444,12 @@ public class Via6522 extends MemoryMappedChip {
         break;
   
       case VIA_REG_1: // ORA/IRA
+        if (ca2ControlMode == OUTPUT_MODE_HANDSHAKE) {
+          ca2 = 0;
+        }
+        else if (ca2ControlMode == OUTPUT_MODE_PULSE) {
+          ca2PulseModeCount = 1;
+        }
         if ((auxiliaryControlRegister & PORTA_INPUT_LATCHING) == 0) {
           // If you read a pin on IRA and input latching is disabled for port A,
           // then you will simply read the current state of the corresponding PA
@@ -570,31 +591,10 @@ public class Via6522 extends MemoryMappedChip {
     // The top bit says whether any interrupt is active and enabled
     if ((interruptFlagRegister & (interruptEnableRegister & 0x7f)) == 0) {
       interruptFlagRegister &= IRQ_RESET;
-      if (autoResetIrq) {
-        // TODO: Only do this if IRQ was set last time we checked (i.e. the
-        // change is what we react to)???
-        updateIrqPin(0);
-      }
+      cpu6809.signalIRQ(false);
     } else {
       interruptFlagRegister |= IRQ_SET;
-      // TODO: Only do this if IRQ was not set last time we checked (i.e. the
-      // change is what we react to????
-      updateIrqPin(1);
-    }
-  }
-
-  /**
-   * Notifies the 6502 of the change in the state of the IRQ pin. In this case 
-   * it is the 6502's IRQ pin that this 6522 IRQ is connected to.
-   * 
-   * @param The current state of this VIA chip's IRQ pin (1 or 0).
-   */
-  protected void updateIrqPin(int pinState) {
-    // The VIA IRQ pin goes to the 6502 IRQ
-    if (pinState == 1) {
       cpu6809.signalIRQ(true);
-    } else {
-      cpu6809.signalIRQ(false);
     }
   }
 
@@ -624,7 +624,7 @@ public class Via6522 extends MemoryMappedChip {
             timer1HasShot = true;
             if (timer1PB7Mode == 1) {
               // If PB7 timer 1 mode on, then make PB7 go high.
-              this.portBPins |= 0x80;
+              this.timer1Pb7 |= 0x80;
             }
           }
           
@@ -640,7 +640,7 @@ public class Via6522 extends MemoryMappedChip {
           timer1HasShot = true;
           if (timer1PB7Mode == 1) {
             // If PB7 timer 1 mode on, then toggle PB7.
-            this.portBPins ^= 0x80;
+            this.timer1Pb7 ^= 0x80;
           }
         }
       }
@@ -703,7 +703,7 @@ public class Via6522 extends MemoryMappedChip {
       }
       
       // We shift out/in when the shift clock has gone LOW.
-      if ((shiftClock == 0) && (shiftClock != prevShiftClock)) {   // TODO: Double check this logic.
+      if ((shiftClock == 0) && (shiftClock != prevShiftClock)) {
         // Shift OUT the top bit if required.
         if (shiftingOut) {
           cb2 = ((shiftRegister & 0x80) >> 7);
@@ -719,17 +719,33 @@ public class Via6522 extends MemoryMappedChip {
           updateIFRTopBit();
         }
       }
-      
-//      System.out.println(String.format(
-//          "acr: %s, pcr %s, shiftRegisterMode: %s, shiftRegister: %s, shiftClock: %d, shiftCounter: %d, " + 
-//          "cb2: %d, interruptFlagRegister: %02X, portBPins: %02X, timer1: %04d",
-//          (String.format("%8s", Integer.toBinaryString(auxiliaryControlRegister)).replace(' ', '0')),
-//          (String.format("%8s", Integer.toBinaryString(peripheralControlRegister)).replace(' ', '0')),
-//          (String.format("%3s", Integer.toBinaryString(shiftRegisterMode)).replace(' ', '0')),
-//          (String.format("%8s", Integer.toBinaryString(shiftRegister)).replace(' ', '0')), 
-//          shiftClock, shiftCounter, cb2, interruptFlagRegister, portBPins, timer1Counter));
     }
 
+    if (ca2ControlMode == OUTPUT_MODE_PULSE) {
+      if (ca2PulseModeCount > 0) {
+        ca2PulseModeCount++;
+        switch (ca2PulseModeCount++) {
+          case 0:
+          case 1:
+            break;
+          case 2:
+            ca2 = 0;
+            break;
+          default:
+            ca2 = 1;
+            ca2PulseModeCount = 0;
+            break;
+        }
+      }
+    }
+    
+    // If in timer 1 PB7 pulse mode, and a write to T1C-H happened this cycle, we start the
+    // pulse at the end of the cycle, i.e. here.
+    if (pb7DelayedPulseStart) {
+      timer1Pb7 = 0;
+      pb7DelayedPulseStart = false;
+    }
+    
     // Clear the flag that says we had a SR write this cycle.
     shiftRegisterWrite = false;
   }
@@ -781,7 +797,11 @@ public class Via6522 extends MemoryMappedChip {
    * @return the current values of the Port B pins.
    */
   public int getPortBPins() {
-    return (portBPins & 0xDF) | (joystick.getCompare()? 0x20 : 0x00);
+    if (timer1PB7Mode == 1) {
+      return ((portBPins & 0x5F) | timer1Pb7 | (joystick.getCompare()? 0x20 : 0x00));
+    } else {
+      return ((portBPins & 0xDF) | (joystick.getCompare()? 0x20 : 0x00));
+    }
   }
   
   /**
