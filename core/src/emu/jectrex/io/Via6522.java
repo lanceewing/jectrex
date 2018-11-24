@@ -651,7 +651,7 @@ public class Via6522 extends MemoryMappedChip {
     } else {
       timer1Loaded = false;
     }
-
+    
     if (!timer2Loaded) {
       if (timer2Mode == ONE_SHOT) {
         // Note: Timer 2 does not behave in the same way with regards to when the 
@@ -659,33 +659,26 @@ public class Via6522 extends MemoryMappedChip {
         // timer 2, it is when the counter is 0x0000 (according to testing on a
         // real Oric)
         
-        if (timer2Counter == 0) {
-          // Set flag in IFR if we haven't yet done it.
-          if (!timer2HasShot ) {
-            interruptFlagRegister |= TIMER2_SET;
-            updateIFRTopBit();
-            timer2HasShot = true;
-          }
+        if (!timer2HasShot && (timer2Counter == 0)) {
+          interruptFlagRegister |= TIMER2_SET;
+          updateIFRTopBit();
+          timer2HasShot = true;
+        }
+        
+        if (timer2Shift && ((timer2Counter & 0xFF) == 0)) {
+          // Timer 2 is currently in control of shift register, which means that 
+          // the T2 latch low should be loaded into T2 counter low byte.
+          timer2Counter = (timer2Latch & 0xFF) | (timer2Counter & 0xFF00);
           
-          if (timer2Shift) {
-            // Timer 2 is currently in control of shift register, which means that 
-            // the T2 latch low should be loaded into T2 counter low byte.
-            timer2Counter = timer2Latch | (timer2Counter & 0xFF00);
-            
-            // For T2 shift control, we toggle the shift clock on each T2 time out.
-            if (shiftClockEnabled) {
-              cb1 = (shiftClock ^= 0x01);
-            }
-            
-          } else {
-            // Else if timer 2 shift not active, we roll over to 0xFFFF.
-            timer2Counter = 0xFFFF;
+          // For T2 shift control, we toggle the shift clock on each T2 time out.
+          if (shiftClockEnabled) {
+            cb1 = (shiftClock ^= 0x01);
           }
-          
-        } else {        
+        } else {
           // Decrement by one, wrapping around to 0XFFFF after zero.
           timer2Counter = (timer2Counter - 1) & 0xFFFF;
-        }        
+        }
+        
       } else {
         // TODO: PB6 pulse counting.
       }
@@ -703,7 +696,9 @@ public class Via6522 extends MemoryMappedChip {
       }
       
       // We shift out/in when the shift clock has gone LOW.
-      if ((shiftClock == 0) && (shiftClock != prevShiftClock)) {
+      // TODO: It seems to make sense to shift when shiftClock is LOW, but it breaks rendering of Protector.
+      // if ((shiftClock == 0) && (shiftClock != prevShiftClock)) {
+      if (shiftClock != prevShiftClock) {
         // Shift OUT the top bit if required.
         if (shiftingOut) {
           cb2 = ((shiftRegister & 0x80) >> 7);
@@ -712,11 +707,14 @@ public class Via6522 extends MemoryMappedChip {
         // Shift IN CB2 to lowest bit. This also happens for Shift OUT.
         shiftRegister = ((shiftRegister << 1) | cb2) & 0xFF;
         
-        // If shift counter has finished shifting out 8 bits, and we're not free running, then set SR IRF.
-        shiftCounter = ((shiftCounter + 1) % 8);
-        if ((shiftCounter == 0) && (shiftRegisterMode != SHIFT_OUT_FREE_RUNNING)) {
-          interruptFlagRegister |= SHIFT_SET;
-          updateIFRTopBit();
+        if (shiftRegisterMode != SHIFT_OUT_FREE_RUNNING) {
+          // If shift counter has finished shifting out 8 bits, and we're not free running, then set SR IRF.
+          shiftCounter = ((shiftCounter + 1) % 8);
+
+          if (shiftCounter == 0) {
+            interruptFlagRegister |= SHIFT_SET;
+            updateIFRTopBit();
+          }
         }
       }
     }
