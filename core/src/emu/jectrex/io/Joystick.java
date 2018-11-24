@@ -93,6 +93,9 @@ public class Joystick {
     for (int i=0; i<keyToDirectionData.length; i++) {
       keyToDirectionMap.put(new Integer(keyToDirectionData[i][0]), JoystickPosition.values()[keyToDirectionData[i][1]]);
     }
+    
+    xDirection = 128;
+    yDirection = 128;
   }
   
   /**
@@ -209,7 +212,7 @@ public class Joystick {
         break;
     }
     
-    if (directionValue > dacOut) {
+    if (directionValue >= dacOut) {
       compare = true;
     } else {
       compare = false;
