@@ -148,6 +148,10 @@ public class Machine {
       // And resume sound when warp speed ends.
       psg.resumeSound();
     }
+    
+    // TODO: Remove
+    psg.pauseSound();
+    
     lastWarpSpeed = warpSpeed;
     do {
       // The concept of a frame doesn't apply to the Vectrex, but we still refresh the 
@@ -210,15 +214,6 @@ public class Machine {
    */
   public int getScreenHeight() {
     return screenHeight;
-  }
-
-  /**
-   * Gets the pixels for the current "frame" from the Video circuitry.
-   * 
-   * @return The pixels for the current "frame". Returns null if there isn't one that is ready.
-   */
-  public short[] getFramePixels() {
-    return video.getFramePixels();
   }
 
   /**
