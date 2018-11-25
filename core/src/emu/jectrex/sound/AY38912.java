@@ -77,6 +77,8 @@ public class AY38912 {
   private int cyclesToNextSample;
   private AudioDevice audioDevice;
   
+  private boolean soundPaused;
+  
   /**
    * The AY-3-8912 in the Vectrex gets its data from the 6522 VIA chip.
    */
@@ -167,6 +169,7 @@ public class AY38912 {
    */
   public void pauseSound() {
     // For libgdx, there is no pause sound.
+    this.soundPaused = true;
   }
 
   /**
@@ -174,6 +177,7 @@ public class AY38912 {
    */
   public void resumeSound() {
     // For libgdx, there is no resume sound.
+    this.soundPaused = false;
   }
 
   /**
@@ -449,7 +453,7 @@ public class AY38912 {
     // If the sample buffer is full, write it out to the audio line.
     if ((sampleBufferOffset += 1) == sampleBuffer.length) {
       try {
-        audioDevice.writeSamples(sampleBuffer, 0, sampleBuffer.length);
+        if (!soundPaused) audioDevice.writeSamples(sampleBuffer, 0, sampleBuffer.length);
       } catch (Throwable e) {
         // An Exception or Error can occur here if the app is closing, so we catch and ignore.
       }
