@@ -415,16 +415,9 @@ public class Video {
   //the Max/Min value is off screen, but by how much ??
 
   private int xAxisIntegrator = 128;
-  private int yAxisIntegrator;
   private int yAxisSampleAndHold = 128;
-  private int zAxisSampleAndHold;
+  private int zAxisSampleAndHold = 128;
   private int xyIntegratorOffset = 128;
-  private int xCurrentPosition;
-  private int yCurrentPosition;
-  private int xLastPosition;
-  private int yLastPosition;
-  private int zLastPosition;
-  private boolean lastBlank;
   private int deltaX;
   private int deltaY;
   
@@ -495,8 +488,8 @@ public class Video {
     joystick.processMux(muxChannelSelect, dacOut);
 
     if (zero) {
-      deltaX = -this.xCurrentPosition;
-      deltaY = -this.yCurrentPosition;
+      deltaX = -phosphors.gunX;
+      deltaY = -phosphors.gunY;
     } else {
       if (ramp) {
         deltaX = this.xAxisIntegrator - this.xyIntegratorOffset;
@@ -507,18 +500,7 @@ public class Video {
       }
     }
     
-    // TODO: Refactor by joining with above.
-    this.xCurrentPosition += deltaX;
-    this.yCurrentPosition += deltaY;
-    
-    if (!blank) {
-      if ((xCurrentPosition >= -16500) && (xCurrentPosition < 16500) && (yCurrentPosition >= -20500) && (yCurrentPosition < 20500)) {
-        // Reduce Z by how far into current frame we are.
-        int adjustedZ = 128 + (zAxisSampleAndHold - ((64 * currentCycleCount) / CYCLES_PER_FRAME));
-        
-        phosphors.add(xCurrentPosition, yCurrentPosition, adjustedZ);
-      }
-    }
+    phosphors.move(deltaX, deltaY, zAxisSampleAndHold, !blank);
     
     if (++currentCycleCount >= CYCLES_PER_FRAME) {
       currentCycleCount = 0;
@@ -570,6 +552,12 @@ public class Video {
     
     private Phosphor[] dots;
     
+    private boolean currentlyInLine;
+    
+    private int gunX;
+    
+    private int gunY;
+    
     // Only altered by add method, which is only called by this Video class.
     private int addPosition;
     
@@ -588,15 +576,36 @@ public class Video {
         dots[i] = new Phosphor();
       }
     }
+
+    void move(int moveByX, int moveByY, int brightness, boolean electronGunOn) {
+      if (electronGunOn) {
+        if (xyOnScreen()) {
+          add(gunX, gunY, brightness, !currentlyInLine);
+          currentlyInLine = true;
+        } else {
+          currentlyInLine = false;
+        }
+      } else {
+        currentlyInLine = false;
+      }
+      
+      this.gunX += moveByX;
+      this.gunY += moveByY;
+    }
     
-    void add(int x, int y, int z) {
+    void add(int x, int y, int z, boolean start) {
       Phosphor phosphor = dots[addPosition];
-      phosphor.x = x;
-      phosphor.y = y;
-      phosphor.z = z;
+      phosphor.x = x / 10;
+      phosphor.y = y / 10;
+      phosphor.origZ = phosphor.z = z;
+      phosphor.start = start;
       // As soon as we adjust addPosition, the phosphor becomes active.
       addPosition = ((addPosition + 1) % NUM_OF_PHOSPHORS);
       phosphorCount++;   // TODO: Remove at some point. This is mainly for interest when debugging and optimising.
+    }
+    
+    boolean xyOnScreen() {
+      return (gunX >= -16500) && (gunX < 16500) && (gunY >= -20500) && (gunY < 20500);
     }
     
     public int getAddPosition() {
@@ -626,9 +635,7 @@ public class Video {
     public int y;
     public int z;
     
-    public int lastX;
-    public int lastY;
-    public int lastZ;
+    public int origZ;
     
     public boolean start;
     

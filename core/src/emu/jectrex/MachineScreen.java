@@ -140,6 +140,8 @@ public class MachineScreen implements Screen {
     
     createScreenResources();
     
+    createColors();
+    
     keyboardIcon = new Texture("png/keyboard_icon.png");
     joystickIcon = new Texture("png/joystick_icon.png");
     backIcon = new Texture("png/back_arrow.png");
@@ -192,6 +194,18 @@ public class MachineScreen implements Screen {
     return touchpad;
   }
   
+  private Color[] colors;
+  private float[] circleSizes;
+  
+  private void createColors() {
+    colors = new Color[128];
+    circleSizes = new float[128];
+    for (int z = 0; z < 128; z++) {
+      float zz = ((float)z / 256.0f) + 0.5f;
+      colors[z] = new Color(zz, zz, zz, zz);
+      circleSizes[z] = 25 * (1.0f - zz);
+    }
+  }
   
   /**
    * Initialises the Machine with the given AppConfigItem. This will represent an app that was
@@ -328,10 +342,12 @@ public class MachineScreen implements Screen {
       
       if (dot.z > 0) {
         // If Z is greater than 0, then it is still visible, so draw it; otherwise ignore.
-        int x = ((dot.x + 16500) / 10) % 3300;
-        int y = ((dot.y + 20500) / 10) % 4100;
+        //int x = ((dot.x + 16500) / 10) % 3300;
+        //int y = ((dot.y + 20500) / 10) % 4100;
+        int x = ((dot.x + 1650));// % 3300;
+        int y = ((dot.y + 2050));// % 4100;
         
-        float zz = ((float)dot.z / (float)255);
+        //float zz = ((float)dot.z / (float)255) + 0.5f;
         //shapeRenderer.setColor(zz, zz, zz, zz);
         
         //int xOffset = 200;   // 660 x 820
@@ -347,14 +363,31 @@ public class MachineScreen implements Screen {
 //        shapeRenderer.circle(x - xOffset, -y + 235, 3);
 //        //}
 //        //if (dot.z > 64) {
-        shapeRenderer.setColor(1.0f, 1.0f, 1.0f, zz);//0.5f); //zz * 1.0f);
+        //shapeRenderer.setColor(zz, zz, zz, zz);
         //shapeRenderer.circle(x - xOffset, y + 235, 6);
         //shapeRenderer.circle(x - xOffset, y - 4000, 6);
-        shapeRenderer.rect(x - xOffset, y - 4000, 6, 6);
+        
+        //if (dot.start || (lastDot == null)) {
+        
+          //shapeRenderer.rect(x - xOffset, y - 4000, 8, 8);
+        
+        //shapeRenderer.setColor(zz, zz, zz, 0.05f);
+        //shapeRenderer.circle(x - xOffset, y - 4000, 15);
+        
+        shapeRenderer.setColor(colors[dot.z]);
+        shapeRenderer.circle(x - xOffset, y - 4000, circleSizes[dot.z]);   // Seems to work quite well.
+          
+        //} else {
+        //  shapeRenderer.rectLine(
+        //      (((lastDot.x + 16500) / 10) % 3300) - xOffset, 
+        //      (((lastDot.y + 20500) / 10) % 4100) - 4000, 
+        //      (((dot.x + 16500) / 10) % 3300) - xOffset, 
+        //      (((dot.y + 20500) / 10) % 4100) - 4000,
+        //      8);
         //}
 
         // Reduce Z for this dot by 64, which is the number of Z levels faded for a single frame.
-        dot.z -= 48;// (dot.z / 2); //64;
+        dot.z -= 32;// (dot.z / 2); //64;
         
         if (dot.z <= 0) {
           // If this dot's Z is below zero, and we haven't yet found a new fade position, we 
