@@ -1,10 +1,5 @@
 package emu.jectrex.video;
 
-import java.util.ArrayDeque;
-import java.util.TreeMap;
-
-import com.badlogic.gdx.utils.TimeUtils;
-
 import emu.jectrex.MachineScreen;
 import emu.jectrex.io.Joystick;
 import emu.jectrex.io.Via6522;
@@ -28,17 +23,6 @@ public class Video {
   private static final int MAX_X = 33000;
   private static final int MAX_Y = 41000;
   
-  private static final short palette[] = {     //RGB565
-    (short)0x0000,         // BLACK  0000000000000000
-    (short)0xF800,         // RED    1111100000000000
-    (short)0x07E0,         // GREEN  0000011111100000
-    (short)0xFFE0,         // YELLOW 1111111111100000
-    (short)0x001F,         // BLUE   0000000000011111
-    (short)0xF81F,         // PURPLE 1111100000011111
-    (short)0x07FF,         // CYAN   0000011111111111
-    (short)0xFFFF          // WHITE  1111111111111111
-  }; 
-  
   /**
    * An array of two Frames, one being the one that the video code is currently writing to,
    * the other being the last one that was completed and ready to blit.
@@ -54,9 +38,6 @@ public class Video {
    * The index of the active frame within the frames. This will toggle between 0 and 1.
    */
   private int activeFrame;
-  
-
-  private int frameCount;
   
   /**
    * The current cycle count within the current frame.
@@ -87,12 +68,10 @@ public class Video {
     
     frames = new Frame[2];
     frames[0] = new Frame();
-    frames[0].framePixels = new short[(MachineScreen.SCREEN_WIDTH * MachineScreen.SCREEN_HEIGHT)];
     frames[0].phosphors = phosphors;
     frames[0].ready = false;
     
     frames[1] = new Frame();
-    frames[1].framePixels = new short[(MachineScreen.SCREEN_WIDTH * MachineScreen.SCREEN_HEIGHT)];
     frames[1].phosphors = phosphors;
     frames[1].ready = false;
   }
@@ -435,17 +414,19 @@ public class Video {
   //values will corrspond to the Max/Min screen deflection values, or maybe
   //the Max/Min value is off screen, but by how much ??
 
-  private int xAxisIntegrator;
+  private int xAxisIntegrator = 128;
   private int yAxisIntegrator;
-  private int yAxisSampleAndHold;
+  private int yAxisSampleAndHold = 128;
   private int zAxisSampleAndHold;
-  private int xyIntegratorOffset;
+  private int xyIntegratorOffset = 128;
   private int xCurrentPosition;
   private int yCurrentPosition;
   private int xLastPosition;
   private int yLastPosition;
   private int zLastPosition;
   private boolean lastBlank;
+  private int deltaX;
+  private int deltaY;
   
   /**
    * 
@@ -454,8 +435,6 @@ public class Video {
    */
   public boolean emulateCycle() {
     boolean frameRenderComplete = false;
-    
-    short[] framePixels = frames[activeFrame].framePixels;
     
     // PB0 - SWITCH    Sample / Hold strobe. MUX switch Control, enables/disables the analog multiplexer, 0=Enabled, because its an INHIBIT signal.
     // PB1 - SEL0      Controls multiplexer channel select.
@@ -510,93 +489,34 @@ public class Video {
         default: // Ignore.
           break;
       }
-      
-      // The MUX is shared by the Joystick direction circuitry.
-      joystick.processMux(muxChannelSelect, dacOut);
-    }
-    
-    int deltaX = 0;
-    int deltaY = 0;
-    if (zero) {
-      deltaX = 16500 - this.xCurrentPosition;
-      deltaY = 20500 - this.yCurrentPosition;
-    } else if (ramp) {
-      deltaX = this.xAxisIntegrator - this.xyIntegratorOffset;
-      deltaY = this.xyIntegratorOffset - this.yAxisSampleAndHold;
     }
 
+    // The MUX is shared by the Joystick direction circuitry.
+    joystick.processMux(muxChannelSelect, dacOut);
+
+    if (zero) {
+      deltaX = -this.xCurrentPosition;
+      deltaY = -this.yCurrentPosition;
+    } else {
+      if (ramp) {
+        deltaX = this.xAxisIntegrator - this.xyIntegratorOffset;
+        deltaY = this.yAxisSampleAndHold - this.xyIntegratorOffset;
+      } else {
+        deltaX = 0;
+        deltaY = 0;
+      }
+    }
+    
     // TODO: Refactor by joining with above.
     this.xCurrentPosition += deltaX;
     this.yCurrentPosition += deltaY;
     
-    //this.xCurrentPosition >= 0 && this.xCurrentPosition < MAX_X && this.yCurrentPosition >= 0 && this.yCurrentPosition < MAX_Y) {
-
-    // TODO: Debug.
-//    if (xCurrentPosition < minX) {
-//      minX = xCurrentPosition;
-//      System.out.println(String.format("minX: %d, maxX: %d, minY: %d, maxY: %d", minX, maxX, minY, maxY));
-//    }
-//    if (xCurrentPosition > maxX) {
-//      maxX = xCurrentPosition;
-//      System.out.println(String.format("minX: %d, maxX: %d, minY: %d, maxY: %d", minX, maxX, minY, maxY));
-//    }
-//    if (yCurrentPosition < minY) {
-//      minY = yCurrentPosition;
-//      System.out.println(String.format("minX: %d, maxX: %d, minY: %d, maxY: %d", minX, maxX, minY, maxY));
-//    }
-//    if (yCurrentPosition > maxY) {
-//      maxY = yCurrentPosition;
-//      System.out.println(String.format("minX: %d, maxX: %d, minY: %d, maxY: %d", minX, maxX, minY, maxY));
-//    }
-    
-    // Actual range: minX: -19212, maxX: 51933, minY: -14933, maxY: 56212
-    // X range: 71145  Y range: 71145
-    
-    //System.out.println(String.format("ramp: %s, zero: %s, blank: %s, dacOut: %s, xCurrentPosition: %d, yCurrentPosition: %d, deltaX: %d, deltaY: %d", 
-    //    Boolean.toString(ramp), Boolean.toString(zero), Boolean.toString(blank), dacOut, xCurrentPosition, yCurrentPosition, deltaX, deltaY));
-    
     if (!blank) {
-      if ((xCurrentPosition >= 0) && (xCurrentPosition < MAX_X) && (yCurrentPosition >= 0) && (yCurrentPosition < MAX_Y)) {
-        // TODO: Draw line. 
-        
-        // TODO: Use the scaleFactor (i.e. device by scaleFactor)
-        
-        //int x = ((xCurrentPosition + 19212) / 297) % 240;   //(71145 / MachineScreen.SCREEN_WIDTH);
-        //int y = ((yCurrentPosition + 14933) / 318) % 224;  // (71145 / MachineScreen.SCREEN_HEIGHT);
-        
-        int x = (xCurrentPosition / 138) % 240;   //(33000 / MachineScreen.SCREEN_WIDTH);
-        int y = (yCurrentPosition / 184) % 224;  // (41000 / MachineScreen.SCREEN_HEIGHT);
-        int z = zAxisSampleAndHold;  
-        
-        // TODO: One possibility is to use a queue, like this:  this.dots.add(new Phosphor(x, y, z));
-        
-        // TODO: Use TimeUtils.nanoTime + Z (using persistence rate)
-        
-        // TODO: Question: Look at schematic: Is Z related to the persistence rate? Or is it actually a proper shade? 
-        // TODO: Do we need to actually store the grayscale colour and the timestamp to fade by? Or can Z be used to calculate timestamp?
-        
-        // TODO: ~2000 a frame * 3 frames = 6000 max ? (2.5 frames actually, to give 50ms). Try * 2 to begin with. That is 40ms. 60ms is too much. Vexc uses 33.3 ms
-        
-        // TODO: Compare redrawing dots every frame versus fading out whole texture and drawing only current frame on top.
-        
-        // TODO: Idea: Maybe shift to get approx. 60000
-        //int zCycles = ((zAxisSampleAndHold * 60000) / 128);                       // Number of cycles that this Z will fade out after.
-        
-        //int adjustedZCycles = zCycles - (CYCLES_PER_FRAME - currentCycleCount);   // Remove the number of cycles left in this frame.
-        // TODO: Above should be adjusted Z. Cycles make no difference.
-        
-        int adjustedZ = 128 + (zAxisSampleAndHold - ((64 * currentCycleCount) / CYCLES_PER_FRAME));    // Reduce Z by how far into current frame we are.
-        //System.out.println("zAxisSampleAndHold: " + zAxisSampleAndHold + ", currentCycleCount: " + currentCycleCount + ", adjustedZ: " + adjustedZ);
-        
-        // TODO: Need to work out when this fades by, so render thread can work out what to remove?
-        
-        // TODO: Idea: We could have a sliding collection of pre-created Phosphors, so that we avoid garbage collection.
-        // TODO: This sliding window idea might avoid multi thread issues as well. Things are never actually deleted.
-        //this.dots.put(phosphorCount++, new Phosphor(x, y, adjustedZCycles));
+      if ((xCurrentPosition >= -16500) && (xCurrentPosition < 16500) && (yCurrentPosition >= -20500) && (yCurrentPosition < 20500)) {
+        // Reduce Z by how far into current frame we are.
+        int adjustedZ = 128 + (zAxisSampleAndHold - ((64 * currentCycleCount) / CYCLES_PER_FRAME));
         
         phosphors.add(xCurrentPosition, yCurrentPosition, adjustedZ);
-        
-        framePixels[y * 240 + x] = palette[7];
       }
     }
     
@@ -610,16 +530,11 @@ public class Video {
         // TODO: This frame toggle can happen multiple times between screen renders.
         
         // Toggle the active frame.
-        // TODO: System.out.println("Toggle frame. ");
         activeFrame = ((activeFrame + 1) % 2);
         frames[activeFrame].ready = false;
-        
-        //System.out.println("dots.size: " + dots.size());
-        //dots.clear();
       }
       
       frameRenderComplete = true;
-      frameCount++;
     }
     
     return frameRenderComplete;
@@ -631,11 +546,6 @@ public class Video {
    * Represents the data for one video frame.
    */
   public class Frame {
-    
-    /**
-     * Holds the pixel data for the TV frame screen.
-     */
-    public short framePixels[];
     
     /**
      * Says whether this frame is ready to be blitted to the GPU.
@@ -656,7 +566,7 @@ public class Video {
    */
   public class Phosphors {
     
-    public static final int NUM_OF_PHOSPHORS = 30000;
+    public static final int NUM_OF_PHOSPHORS = 50000;
     
     private Phosphor[] dots;
     
@@ -722,23 +632,6 @@ public class Video {
     
     public boolean start;
     
-  }
-  
-  /**
-   * Gets the pixels for the current frame from the Vectrex video circuitry.
-   * 
-   * @return The pixels for the current frame. Returns null if there isn't one that is ready.
-   */
-  public short[] getFramePixels() {
-    short[] framePixels = null;
-    synchronized (frames) {
-      Frame nonActiveFrame = frames[((activeFrame + 1) % 2)];
-      if (nonActiveFrame.ready) {
-        nonActiveFrame.ready = false;
-        framePixels = nonActiveFrame.framePixels;
-      }
-    }
-    return framePixels;
   }
   
   public Frame getFrame() {
