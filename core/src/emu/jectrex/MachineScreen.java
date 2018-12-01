@@ -12,11 +12,14 @@ import com.badlogic.gdx.graphics.Color;
 import com.badlogic.gdx.graphics.GL20;
 import com.badlogic.gdx.graphics.OrthographicCamera;
 import com.badlogic.gdx.graphics.Pixmap;
+import com.badlogic.gdx.graphics.Pixmap.Format;
 import com.badlogic.gdx.graphics.PixmapIO;
 import com.badlogic.gdx.graphics.Texture;
 import com.badlogic.gdx.graphics.PixmapIO.PNG;
 import com.badlogic.gdx.graphics.g2d.BitmapFont;
 import com.badlogic.gdx.graphics.g2d.SpriteBatch;
+import com.badlogic.gdx.graphics.glutils.FrameBuffer;
+import com.badlogic.gdx.graphics.glutils.ImmediateModeRenderer;
 import com.badlogic.gdx.graphics.glutils.ShaderProgram;
 import com.badlogic.gdx.graphics.glutils.ShapeRenderer;
 import com.badlogic.gdx.graphics.glutils.ShapeRenderer.ShapeType;
@@ -86,6 +89,9 @@ public class MachineScreen implements Screen {
    */
   private ShapeRenderer shapeRenderer;
   
+  // TODO: Frame Buffer experiments.
+  private FrameBuffer fbo;
+  
   // Currently in use components to support rendering of the Vectrex screen. The objects 
   // that these references point to will change depending on the MachineType.
   private Pixmap screenPixmap;
@@ -113,7 +119,7 @@ public class MachineScreen implements Screen {
   // FPS text font
   private BitmapFont font;
   
-  private boolean showFPS;
+  private boolean showFPS = true;   // TODO: Remove setting to true. Temporary testing.
   
   /**
    * Details about the application currently running.
@@ -136,7 +142,9 @@ public class MachineScreen implements Screen {
     ShaderProgram shaderProgram = new ShaderProgram(vertexShader,fragmentShader);
     
     batch = new SpriteBatch();
-    shapeRenderer = new ShapeRenderer();// 5000, shaderProgram);
+    shapeRenderer = new ShapeRenderer(50000, shaderProgram);   // First param is max vertices.
+    
+    fbo = FrameBuffer.createFrameBuffer(Format.RGBA8888, 512, 640, false);
     
     createScreenResources();
     
@@ -243,7 +251,11 @@ public class MachineScreen implements Screen {
     screens[2] = new Texture(screenPixmap, Pixmap.Format.RGB565, false);
     screens[2].setFilter(Texture.TextureFilter.Linear, Texture.TextureFilter.Linear);
     camera = new OrthographicCamera();
-    viewport = new ExtendViewport(3300, 4100, camera);
+    
+    //viewport = new ExtendViewport(3300, 4100, camera);
+    //viewport = new ExtendViewport(1024, 1280, camera);
+    viewport = new ExtendViewport(512, 640, camera);
+    // 512 by 640 is probably a sensible minimum. 1024 x 1280 would be clearer, but updating so many pixels could cause issues.
   }
   
   private long lastLogTime;
@@ -273,7 +285,7 @@ public class MachineScreen implements Screen {
       if (frame != null) {
         // If it does then update the Texture on the GPU.
         // TODO: Probably won't need this now that we're not using frame pixels.
-        screens[updateScreen].draw(screenPixmap, 0, 0);
+        //screens[updateScreen].draw(screenPixmap, 0, 0);
         updateScreen = (updateScreen + 1) % 3;
         drawScreen = (drawScreen + 1) % 3;
         
@@ -309,21 +321,23 @@ public class MachineScreen implements Screen {
   }
 
   private void draw(float delta, Phosphors phosphors) {
+    // TODO: Use delta to decide how much to reduce phosphors.
+    
     // Get the KeyboardType currently being used by the MachineScreenProcessor.
     KeyboardType keyboardType = machineInputProcessor.getKeyboardType();
     
-    Gdx.gl.glClearColor(0, 0, 0, 1);
-    Gdx.gl.glClear(GL20.GL_COLOR_BUFFER_BIT);
+    // Make our offscreen FBO the current buffer.
+    //fbo.begin();
     
-    // This allows the alpha channel to work on setColor
-    Gdx.gl.glEnable(GL20.GL_BLEND);
-    Gdx.gl.glBlendFunc(GL20.GL_SRC_ALPHA, GL20.GL_ONE_MINUS_SRC_ALPHA);
+    //Gdx.gl.glClearColor(0, 0, 0, 1);
+    Gdx.gl.glClear(GL20.GL_COLOR_BUFFER_BIT);
+    Gdx.gl.glDisable(GL20.GL_DEPTH_TEST);
     
     // Render the Vectrex screen.
     camera.update();
     
     shapeRenderer.setProjectionMatrix(camera.combined);
-    shapeRenderer.begin(ShapeType.Filled);
+    shapeRenderer.begin(ShapeType.Line);
     shapeRenderer.setColor(Color.YELLOW);
     
     Color c = Color.WHITE;
@@ -341,53 +355,26 @@ public class MachineScreen implements Screen {
       Phosphor dot = dots[i];
       
       if (dot.z > 0) {
-        // If Z is greater than 0, then it is still visible, so draw it; otherwise ignore.
-        //int x = ((dot.x + 16500) / 10) % 3300;
-        //int y = ((dot.y + 20500) / 10) % 4100;
-        int x = ((dot.x + 1650));// % 3300;
-        int y = ((dot.y + 2050));// % 4100;
+        int x = (dot.x + 140);
+        int y = (dot.y - 100);
         
-        //float zz = ((float)dot.z / (float)255) + 0.5f;
-        //shapeRenderer.setColor(zz, zz, zz, zz);
+        Color c1 = colors[dot.z];
+        shapeRenderer.setColor(c1);
         
-        //int xOffset = 200;   // 660 x 820
-        int xOffset = 1500;    // 3300 x 4100
-        //int xOffset = 3100;    // 6600 x 8200
-        
-//        //if (dot.z > 64) {
-//        shapeRenderer.setColor(1.0f, 1.0f, 1.0f, 0.1f);//zz * 0.1f);
-//        shapeRenderer.circle(x - xOffset, -y + 235, 6);
-//        //}
-//        //if (dot.z > 32) {
-//        shapeRenderer.setColor(1.0f, 1.0f, 1.0f, 0.3f);//zz * 0.3f);
-//        shapeRenderer.circle(x - xOffset, -y + 235, 3);
-//        //}
-//        //if (dot.z > 64) {
-        //shapeRenderer.setColor(zz, zz, zz, zz);
-        //shapeRenderer.circle(x - xOffset, y + 235, 6);
-        //shapeRenderer.circle(x - xOffset, y - 4000, 6);
-        
-        //if (dot.start || (lastDot == null)) {
-        
-          //shapeRenderer.rect(x - xOffset, y - 4000, 8, 8);
-        
-        //shapeRenderer.setColor(zz, zz, zz, 0.05f);
-        //shapeRenderer.circle(x - xOffset, y - 4000, 15);
-        
-        shapeRenderer.setColor(colors[dot.z]);
-        shapeRenderer.circle(x - xOffset, y - 4000, circleSizes[dot.z]);   // Seems to work quite well.
-          
-        //} else {
-        //  shapeRenderer.rectLine(
-        //      (((lastDot.x + 16500) / 10) % 3300) - xOffset, 
-        //      (((lastDot.y + 20500) / 10) % 4100) - 4000, 
-        //      (((dot.x + 16500) / 10) % 3300) - xOffset, 
-        //      (((dot.y + 20500) / 10) % 4100) - 4000,
-        //      8);
-        //}
+        // Experimental: Implementation of rendering dots using the underlying renderer rather than via the ShapeRenderer.
+        // TODO: Doesn't even need the ShapeRenderer if we're going to do this.
+        ImmediateModeRenderer renderer = shapeRenderer.getRenderer();
+        if (renderer.getMaxVertices() - renderer.getNumVertices() < 2) {
+          shapeRenderer.end();
+          shapeRenderer.begin(ShapeType.Line);
+        }
+        renderer.color(c1.r, c1.g, c1.b, c1.a);
+        renderer.vertex(x, y, 0);
+        renderer.color(c1.r, c1.g, c1.b, c1.a);
+        renderer.vertex(x + 1, y, 0);
 
         // Reduce Z for this dot by 64, which is the number of Z levels faded for a single frame.
-        dot.z -= 32;// (dot.z / 2); //64;
+        dot.z -= 32;
         
         if (dot.z <= 0) {
           // If this dot's Z is below zero, and we haven't yet found a new fade position, we 
@@ -408,6 +395,16 @@ public class MachineScreen implements Screen {
     
     shapeRenderer.end();
 
+    // Unbind the FBO
+    //fbo.end();
+    
+    //Gdx.gl.glClear(GL20.GL_COLOR_BUFFER_BIT);
+    //Gdx.gl.glDisable(GL20.GL_DEPTH_TEST);
+    
+    //batch.begin();
+    //batch.draw(fbo.getColorBufferTexture(), 0, 0);
+    //batch.end();
+    
     // Render the UI elements, e.g. the keyboard and joystick icons.
     viewportManager.getCurrentCamera().update();
     batch.setProjectionMatrix(viewportManager.getCurrentCamera().combined);
@@ -569,6 +566,7 @@ public class MachineScreen implements Screen {
       Gdx.input.setInputProcessor(landscapeInputProcessor);
     }
     machineRunnable.resume();
+    Gdx.gl.glClearColor(0, 0, 0, 1);
   }
   
   @Override
@@ -595,6 +593,7 @@ public class MachineScreen implements Screen {
     screens[0].dispose();
     screens[1].dispose();
     screens[2].dispose();
+    fbo.dispose();
   }
   
   /**

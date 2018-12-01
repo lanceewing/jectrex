@@ -1,6 +1,5 @@
 package emu.jectrex.video;
 
-import emu.jectrex.MachineScreen;
 import emu.jectrex.io.Joystick;
 import emu.jectrex.io.Via6522;
 
@@ -20,8 +19,17 @@ public class Video {
   private static final int FRAME_RATE = 50;//Hz
   private static final int CYCLES_PER_FRAME = (CLOCK_FREQ / FRAME_RATE);
   
-  private static final int MAX_X = 33000;
-  private static final int MAX_Y = 41000;
+  // 33000 is the width used in other emulators, but 32768 is a close-ish power of 2.
+  // 41000 is the height used in other emulators, but 40960 is close enough and allows 
+  // us to easily scale down to 1024x1280 or 512x640
+  private static final int WIDTH       = 32768;        // (512 * 64) = 32768
+  private static final int HEIGTH      = 40960;        // ((512 + 128 = 640) * 64) = 40960
+  private static final int HALF_WIDTH  = WIDTH / 2;
+  private static final int HALF_HEIGHT = HEIGTH / 2;
+  // 40 x 1024 = 40960
+  // 32 x 1024 = 32768
+  // 40960 / 40 = 1024
+  // 32960 / 40 = 824
   
   /**
    * An array of two Frames, one being the one that the video code is currently writing to,
@@ -595,8 +603,8 @@ public class Video {
     
     void add(int x, int y, int z, boolean start) {
       Phosphor phosphor = dots[addPosition];
-      phosphor.x = x / 10;
-      phosphor.y = y / 10;
+      phosphor.x = (x >> 6);
+      phosphor.y = (y >> 6);
       phosphor.origZ = phosphor.z = z;
       phosphor.start = start;
       // As soon as we adjust addPosition, the phosphor becomes active.
@@ -605,7 +613,7 @@ public class Video {
     }
     
     boolean xyOnScreen() {
-      return (gunX >= -16500) && (gunX < 16500) && (gunY >= -20500) && (gunY < 20500);
+      return (gunX >= -HALF_WIDTH) && (gunX < HALF_WIDTH) && (gunY >= -HALF_HEIGHT) && (gunY < HALF_HEIGHT);
     }
     
     public int getAddPosition() {
