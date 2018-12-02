@@ -1,8 +1,5 @@
 package emu.jectrex;
 
-import java.io.ByteArrayOutputStream;
-import java.io.IOException;
-
 import com.badlogic.gdx.Application.ApplicationType;
 import com.badlogic.gdx.Gdx;
 import com.badlogic.gdx.InputMultiplexer;
@@ -11,11 +8,8 @@ import com.badlogic.gdx.graphics.Camera;
 import com.badlogic.gdx.graphics.Color;
 import com.badlogic.gdx.graphics.GL20;
 import com.badlogic.gdx.graphics.OrthographicCamera;
-import com.badlogic.gdx.graphics.Pixmap;
 import com.badlogic.gdx.graphics.Pixmap.Format;
-import com.badlogic.gdx.graphics.PixmapIO;
 import com.badlogic.gdx.graphics.Texture;
-import com.badlogic.gdx.graphics.PixmapIO.PNG;
 import com.badlogic.gdx.graphics.g2d.BitmapFont;
 import com.badlogic.gdx.graphics.g2d.SpriteBatch;
 import com.badlogic.gdx.graphics.glutils.FrameBuffer;
@@ -23,12 +17,12 @@ import com.badlogic.gdx.graphics.glutils.ImmediateModeRenderer;
 import com.badlogic.gdx.graphics.glutils.ShaderProgram;
 import com.badlogic.gdx.graphics.glutils.ShapeRenderer;
 import com.badlogic.gdx.graphics.glutils.ShapeRenderer.ShapeType;
+import com.badlogic.gdx.math.Matrix4;
 import com.badlogic.gdx.scenes.scene2d.Stage;
 import com.badlogic.gdx.scenes.scene2d.ui.Skin;
 import com.badlogic.gdx.scenes.scene2d.ui.Touchpad;
 import com.badlogic.gdx.scenes.scene2d.ui.Touchpad.TouchpadStyle;
 import com.badlogic.gdx.scenes.scene2d.utils.Drawable;
-import com.badlogic.gdx.utils.Base64Coder;
 import com.badlogic.gdx.utils.TimeUtils;
 import com.badlogic.gdx.utils.viewport.ExtendViewport;
 import com.badlogic.gdx.utils.viewport.Viewport;
@@ -49,9 +43,11 @@ import emu.jectrex.video.Video.Phosphors;
  */
 public class MachineScreen implements Screen {
 
-  public static final int SCREEN_HEIGHT = 224;
-  public static final int SCREEN_WIDTH = 240;
-  
+  // Screen dimensions.
+  public static final int SCREEN_HEIGHT = 640;
+  public static final int SCREEN_WIDTH = 512;
+  public static final int SCREEN_HALF_HEIGHT = (SCREEN_HEIGHT / 2);
+  public static final int SCREEN_HALF_WIDTH = (SCREEN_WIDTH / 2);
   
   /**
    * The Game object for Jectrex. Allows us to easily change screens.
@@ -92,14 +88,13 @@ public class MachineScreen implements Screen {
   // TODO: Frame Buffer experiments.
   private FrameBuffer fbo;
   
+  // A projection matrix appropriate to use with the various post processing frame buffers.
+  private Matrix4 fboProjection;
+  
   // Currently in use components to support rendering of the Vectrex screen. The objects 
   // that these references point to will change depending on the MachineType.
-  private Pixmap screenPixmap;
   private Viewport viewport;
   private Camera camera;
-  private Texture[] screens;
-  private int drawScreen = 1;
-  private int updateScreen = 0;
   
   // UI components.
   private Texture joystickIcon;
@@ -139,14 +134,22 @@ public class MachineScreen implements Screen {
     
     String vertexShader = Gdx.files.internal("glsl/vertex.glsl").readString();
     String fragmentShader = Gdx.files.internal("glsl/fragment.glsl").readString();
-    ShaderProgram shaderProgram = new ShaderProgram(vertexShader,fragmentShader);
+    ShaderProgram shaderProgram = new ShaderProgram(vertexShader, fragmentShader);
     
     batch = new SpriteBatch();
     shapeRenderer = new ShapeRenderer(50000, shaderProgram);   // First param is max vertices.
     
-    fbo = FrameBuffer.createFrameBuffer(Format.RGBA8888, 512, 640, false);
+    fbo = FrameBuffer.createFrameBuffer(Format.RGBA8888, SCREEN_WIDTH, SCREEN_HEIGHT, false);
     
-    createScreenResources();
+    // Create a projection matrix that flips the Y axis, and centres based on screen dimensions.
+    fboProjection = (new Matrix4())
+        .setToOrtho2D(-SCREEN_HALF_WIDTH, -SCREEN_HALF_HEIGHT, SCREEN_WIDTH, SCREEN_HEIGHT)
+        .mul((new Matrix4()).setToScaling(1.0f, -1.0f, 1.0f));
+    
+    initGLComponents();
+    
+    camera = new OrthographicCamera();
+    viewport = new ExtendViewport(SCREEN_WIDTH, SCREEN_HEIGHT, camera);
     
     createColors();
     
@@ -210,8 +213,8 @@ public class MachineScreen implements Screen {
     circleSizes = new float[128];
     for (int z = 0; z < 128; z++) {
       float zz = ((float)z / 256.0f) + 0.5f;
-      colors[z] = new Color(zz, zz, zz, zz);
-      circleSizes[z] = 25 * (1.0f - zz);
+      colors[z] = new Color(zz, zz, zz, 1.0f);
+      circleSizes[z] = 3 * (1.0f - zz);
     }
   }
   
@@ -233,29 +236,6 @@ public class MachineScreen implements Screen {
       // Otherwise there is a file to load.
       machine.init(appConfigItem.getFilePath(), appConfigItem.getFileType(), appConfigItem.getFileLocation());
     }
-    
-    drawScreen = 1;
-    updateScreen = 0;
-  }
-  
-  /**
-   * Creates the libGDX screen resources for Jectrex.
-   */
-  private void createScreenResources() {
-    screenPixmap = new Pixmap(SCREEN_WIDTH, SCREEN_HEIGHT, Pixmap.Format.RGB565);
-    screens = new Texture[3];
-    screens[0] = new Texture(screenPixmap, Pixmap.Format.RGB565, false);
-    screens[0].setFilter(Texture.TextureFilter.Linear, Texture.TextureFilter.Linear);
-    screens[1] = new Texture(screenPixmap, Pixmap.Format.RGB565, false);
-    screens[1].setFilter(Texture.TextureFilter.Linear, Texture.TextureFilter.Linear);
-    screens[2] = new Texture(screenPixmap, Pixmap.Format.RGB565, false);
-    screens[2].setFilter(Texture.TextureFilter.Linear, Texture.TextureFilter.Linear);
-    camera = new OrthographicCamera();
-    
-    //viewport = new ExtendViewport(3300, 4100, camera);
-    //viewport = new ExtendViewport(1024, 1280, camera);
-    viewport = new ExtendViewport(512, 640, camera);
-    // 512 by 640 is probably a sensible minimum. 1024 x 1280 would be clearer, but updating so many pixels could cause issues.
   }
   
   private long lastLogTime;
@@ -283,15 +263,8 @@ public class MachineScreen implements Screen {
     } else {
       Frame frame = machine.getFrame();
       if (frame != null) {
-        // If it does then update the Texture on the GPU.
-        // TODO: Probably won't need this now that we're not using frame pixels.
-        //screens[updateScreen].draw(screenPixmap, 0, 0);
-        updateScreen = (updateScreen + 1) % 3;
-        drawScreen = (drawScreen + 1) % 3;
-        
         phosphors = frame.phosphors;
       }
-      
       draw = true;
     }
     
@@ -327,7 +300,7 @@ public class MachineScreen implements Screen {
     KeyboardType keyboardType = machineInputProcessor.getKeyboardType();
     
     // Make our offscreen FBO the current buffer.
-    //fbo.begin();
+    fbo.begin();
     
     //Gdx.gl.glClearColor(0, 0, 0, 1);
     Gdx.gl.glClear(GL20.GL_COLOR_BUFFER_BIT);
@@ -336,7 +309,7 @@ public class MachineScreen implements Screen {
     // Render the Vectrex screen.
     camera.update();
     
-    shapeRenderer.setProjectionMatrix(camera.combined);
+    shapeRenderer.setProjectionMatrix(fboProjection);
     shapeRenderer.begin(ShapeType.Line);
     shapeRenderer.setColor(Color.YELLOW);
     
@@ -355,23 +328,23 @@ public class MachineScreen implements Screen {
       Phosphor dot = dots[i];
       
       if (dot.z > 0) {
-        int x = (dot.x + 140);
-        int y = (dot.y - 100);
-        
         Color c1 = colors[dot.z];
         shapeRenderer.setColor(c1);
+        
+        //shapeRenderer.rect(dot.x, dot.y, 1, 1);
+        //shapeRenderer.circle(dot.x, dot.y, 1);
         
         // Experimental: Implementation of rendering dots using the underlying renderer rather than via the ShapeRenderer.
         // TODO: Doesn't even need the ShapeRenderer if we're going to do this.
         ImmediateModeRenderer renderer = shapeRenderer.getRenderer();
-        if (renderer.getMaxVertices() - renderer.getNumVertices() < 2) {
+        if (renderer.getMaxVertices() - renderer.getNumVertices() < 1) {
           shapeRenderer.end();
           shapeRenderer.begin(ShapeType.Line);
         }
         renderer.color(c1.r, c1.g, c1.b, c1.a);
-        renderer.vertex(x, y, 0);
+        renderer.vertex(dot.x, dot.y, 0);
         renderer.color(c1.r, c1.g, c1.b, c1.a);
-        renderer.vertex(x + 1, y, 0);
+        renderer.vertex(dot.x + 1, dot.y, 0);
 
         // Reduce Z for this dot by 64, which is the number of Z levels faded for a single frame.
         dot.z -= 32;
@@ -379,9 +352,11 @@ public class MachineScreen implements Screen {
         if (dot.z <= 0) {
           // If this dot's Z is below zero, and we haven't yet found a new fade position, we 
           // adjust the fade position to the dot after this one.
+        
           if (!foundNewFadePosition) {
             fadePosition = i + 1;
           }
+          
         } else {
           // When  we find the first Z position still above 0, we stop adjusting the fade position.
           foundNewFadePosition = true;
@@ -396,14 +371,42 @@ public class MachineScreen implements Screen {
     shapeRenderer.end();
 
     // Unbind the FBO
-    //fbo.end();
+    fbo.end();
     
-    //Gdx.gl.glClear(GL20.GL_COLOR_BUFFER_BIT);
-    //Gdx.gl.glDisable(GL20.GL_DEPTH_TEST);
+    fbo1.begin();
+    Gdx.gl.glClear(GL20.GL_COLOR_BUFFER_BIT);
+    Gdx.gl.glDisable(GL20.GL_DEPTH_TEST);
+    batch.setProjectionMatrix(fboProjection);
+    batch.begin();
+    //batch.setColor(Color.WHITE);
+    batch.setShader(persistenceShader);
+    persistenceFbo.getColorBufferTexture().bind(1);
+    persistenceShader.setUniformi("r", 1);
+    fbo.getColorBufferTexture().bind(0);
+    batch.draw(fbo.getColorBufferTexture(), -SCREEN_HALF_WIDTH, -SCREEN_HALF_HEIGHT);
+    batch.end();
+    batch.setShader(null);
+    fbo1.end();
     
-    //batch.begin();
-    //batch.draw(fbo.getColorBufferTexture(), 0, 0);
-    //batch.end();
+    persistenceFbo.begin();
+    Gdx.gl.glClear(GL20.GL_COLOR_BUFFER_BIT);
+    Gdx.gl.glDisable(GL20.GL_DEPTH_TEST);
+    batch.setProjectionMatrix(fboProjection);
+    batch.setShader(copyShader);
+    batch.begin();
+    //batch.setColor(Color.WHITE);
+    batch.draw(fbo1.getColorBufferTexture(), -SCREEN_HALF_WIDTH, -SCREEN_HALF_HEIGHT);
+    batch.end();
+    batch.setShader(null);
+    persistenceFbo.end();
+    
+    Gdx.gl.glClear(GL20.GL_COLOR_BUFFER_BIT);
+    Gdx.gl.glDisable(GL20.GL_DEPTH_TEST);
+    
+    batch.setProjectionMatrix(camera.combined);
+    batch.begin();
+    batch.draw(fbo1.getColorBufferTexture(), 0, 0);
+    batch.end();
     
     // Render the UI elements, e.g. the keyboard and joystick icons.
     viewportManager.getCurrentCamera().update();
@@ -487,41 +490,6 @@ public class MachineScreen implements Screen {
     showFPS = !showFPS;
   }
   
-  /**
-   * Saves a screenshot of the machine's current screen contents.
-   */
-  public void saveScreenshot() {
-    String friendlyAppName = appConfigItem != null? appConfigItem.getName().replaceAll("[ ,\n/\\:;*?\"<>|!]",  "_") : "shot";
-    if (Gdx.app.getType().equals(ApplicationType.Desktop)) {
-      try {
-        StringBuilder filePath = new StringBuilder("jectrex_screens/");
-        filePath.append(friendlyAppName);
-        filePath.append("_");
-        filePath.append(System.currentTimeMillis());
-        filePath.append(".png");
-        PixmapIO.writePNG(Gdx.files.external(filePath.toString()), screenPixmap);
-      } catch (Exception e) {
-        // Ignore.
-      }
-    }
-    if (appConfigItem != null) {
-      try {
-        ByteArrayOutputStream out = new ByteArrayOutputStream();
-        PNG writer = new PNG((int)(screenPixmap.getWidth() * screenPixmap.getHeight() * 1.5f));
-        try {
-          writer.setFlipY(false);
-          writer.write(out, screenPixmap);
-        } finally {
-          writer.dispose();
-        }
-        jectrex.getScreenshotStore().putString(friendlyAppName, new String(Base64Coder.encode(out.toByteArray())));
-        jectrex.getScreenshotStore().flush();
-      } catch (IOException ex) {
-        // Ignore.
-      }
-    }
-  }
-  
   @Override
   public void resize(int width, int height) {
     viewport.update(width, height, false);
@@ -583,16 +551,13 @@ public class MachineScreen implements Screen {
     batch.dispose();
     machineRunnable.stop();
     disposeScreens();
+    disposeGLComponents();
   }
   
   /**
    * Disposes the libGDX screen resources for each MachineType.
    */
   private void disposeScreens() {
-    screenPixmap.dispose();
-    screens[0].dispose();
-    screens[1].dispose();
-    screens[2].dispose();
     fbo.dispose();
   }
   
@@ -619,5 +584,41 @@ public class MachineScreen implements Screen {
    */
   public void exit() {
     jectrex.setScreen(jectrex.getHomeScreen());
+  }
+
+  private ShaderProgram copyShader;
+  private ShaderProgram laserShader;
+  private ShaderProgram persistenceShader;
+
+  private FrameBuffer persistenceFbo;
+  private FrameBuffer laserFbo;
+  private FrameBuffer fbo1;
+  private FrameBuffer fbo2;
+  
+  public void initGLComponents() {
+    String staticVert = Gdx.files.internal("glsl/static.glsl").readString();
+    String copyFrag = Gdx.files.internal("glsl/copy.glsl").readString();
+    String laserFrag = Gdx.files.internal("glsl/laser.glsl").readString();
+    String persistenceFrag = Gdx.files.internal("glsl/persistence.glsl").readString();
+    
+    copyShader = new ShaderProgram(staticVert, copyFrag);
+    laserShader = new ShaderProgram(staticVert, laserFrag);
+    persistenceShader = new ShaderProgram(staticVert, persistenceFrag);
+
+    persistenceFbo = FrameBuffer.createFrameBuffer(Format.RGBA8888, SCREEN_WIDTH, SCREEN_HEIGHT, false);
+    laserFbo = FrameBuffer.createFrameBuffer(Format.RGBA8888, SCREEN_WIDTH, SCREEN_HEIGHT, false);
+    fbo1 = FrameBuffer.createFrameBuffer(Format.RGBA8888, SCREEN_WIDTH, SCREEN_HEIGHT, false);
+    fbo2 = FrameBuffer.createFrameBuffer(Format.RGBA8888, SCREEN_WIDTH, SCREEN_HEIGHT, false);
+  }
+  
+  public void disposeGLComponents() {
+    copyShader.dispose();
+    laserShader.dispose();
+    persistenceShader.dispose();
+    persistenceFbo.dispose();
+    laserFbo.dispose();
+    fbo1.dispose();
+    fbo2.dispose();
+    fbo.dispose();
   }
 }
