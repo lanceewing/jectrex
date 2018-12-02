@@ -32,11 +32,6 @@ public class Machine {
   private boolean paused = true;
   private boolean lastWarpSpeed = false;
   
-  // These control what part of the generate pixel data is rendered to the screen. 
-  private int screenLeft;
-  private int screenRight;
-  private int screenTop;
-  private int screenBottom;
   private int screenWidth;
   private int screenHeight;
   
@@ -116,12 +111,8 @@ public class Machine {
     memory = new Memory(cpu, via);
     
     // Set up the screen dimensions based on aspect ratio of 5:4.
-    screenWidth = ((MachineScreen.SCREEN_HEIGHT / 4) * 5);
+    screenWidth = MachineScreen.SCREEN_WIDTH;
     screenHeight = MachineScreen.SCREEN_HEIGHT;
-    screenLeft = 0;
-    screenRight = screenLeft + MachineScreen.SCREEN_WIDTH;
-    screenTop = 0;
-    screenBottom = screenTop + MachineScreen.SCREEN_HEIGHT;
 
     // Check if the resource parameters have been set.
     if ((programData != null) && (programData.length > 0)) {
@@ -170,34 +161,6 @@ public class Machine {
    */
   public boolean isLastWarpSpeed() {
     return lastWarpSpeed;
-  }
-  
-  /**
-   * @return the screenLeft
-   */
-  public int getScreenLeft() {
-    return screenLeft;
-  }
-
-  /**
-   * @return the screenRight
-   */
-  public int getScreenRight() {
-    return screenRight;
-  }
-
-  /**
-   * @return the screenTop
-   */
-  public int getScreenTop() {
-    return screenTop;
-  }
-
-  /**
-   * @return the screenBottom
-   */
-  public int getScreenBottom() {
-    return screenBottom;
   }
 
   /**
