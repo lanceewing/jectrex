@@ -159,9 +159,7 @@ public class Machine {
       frameComplete |= video.emulateCycle();
       cpu.emulateCycle();
       via.emulateCycle();
-      if (!warpSpeed) {
-        psg.emulateCycle();
-      }
+      psg.emulateCycle();
     } while (!frameComplete);
   }
   
@@ -246,10 +244,12 @@ public class Machine {
     this.paused = paused;
     
     // Pass this on to the AY-3-8912 so that it can stop the SourceDataLine.
-    if (paused) {
-      this.psg.pauseSound();
-    } else {
-      this.psg.resumeSound();
+    if (psg != null) {
+      if (paused) {
+        this.psg.pauseSound();
+      } else {
+        this.psg.resumeSound();
+      }
     }
   }
   
@@ -266,8 +266,10 @@ public class Machine {
    * Invoked when the Machine is being terminated.
    */
   public void dispose() {
-    // Tell the PSG to free up its sound resources.
-    this.psg.dispose();
+    if (this.psg != null) {
+      // Tell the PSG to free up its sound resources.
+      this.psg.dispose();
+    }
   }
   
   /**
