@@ -129,7 +129,8 @@ public class MachineInputProcessor extends InputAdapter {
         keyboardType = KeyboardType.OFF;
       }
     } else if (keycode == Keys.F10) {
-      machineScreen.saveScreenshot();
+      // TODO: Reserved for screenshot.
+      // TODO: machineScreen.saveScreenshot(); 
       
     } else if (keycode == Keys.F5) { 
       machineScreen.toggleShowFPS();
@@ -218,7 +219,7 @@ public class MachineInputProcessor extends InputAdapter {
       machineScreen.getMachineRunnable().pause();
       dialogHandler.confirm("Take screenshot?", new ConfirmResponseHandler() {
         public void yes() {
-          machineScreen.saveScreenshot();
+          // TODO: machineScreen.saveScreenshot();
           machineScreen.getMachineRunnable().resume();
         }
         public void no() {
