@@ -13,7 +13,6 @@ import com.badlogic.gdx.graphics.Texture;
 import com.badlogic.gdx.graphics.g2d.BitmapFont;
 import com.badlogic.gdx.graphics.g2d.SpriteBatch;
 import com.badlogic.gdx.graphics.glutils.FrameBuffer;
-import com.badlogic.gdx.graphics.glutils.ImmediateModeRenderer;
 import com.badlogic.gdx.graphics.glutils.ShaderProgram;
 import com.badlogic.gdx.graphics.glutils.ShapeRenderer;
 import com.badlogic.gdx.graphics.glutils.ShapeRenderer.ShapeType;
@@ -85,9 +84,6 @@ public class MachineScreen implements Screen {
    */
   private ShapeRenderer shapeRenderer;
   
-  // TODO: Frame Buffer experiments.
-  private FrameBuffer fbo;
-  
   // A projection matrix appropriate to use with the various post processing frame buffers.
   private Matrix4 fboProjection;
   
@@ -132,14 +128,8 @@ public class MachineScreen implements Screen {
     this.machine = new Machine();
     this.machineRunnable = new MachineRunnable(this.machine);
     
-    String vertexShader = Gdx.files.internal("glsl/vertex.glsl").readString();
-    String fragmentShader = Gdx.files.internal("glsl/fragment.glsl").readString();
-    ShaderProgram shaderProgram = new ShaderProgram(vertexShader, fragmentShader);
-    
     batch = new SpriteBatch();
-    shapeRenderer = new ShapeRenderer(50000, shaderProgram);   // First param is max vertices.
-    
-    fbo = FrameBuffer.createFrameBuffer(Format.RGBA8888, SCREEN_WIDTH, SCREEN_HEIGHT, false);
+    shapeRenderer = new ShapeRenderer(50000);
     
     // Create a projection matrix that flips the Y axis, and centres based on screen dimensions.
     fboProjection = (new Matrix4())
@@ -213,7 +203,7 @@ public class MachineScreen implements Screen {
     circleSizes = new float[128];
     for (int z = 0; z < 128; z++) {
       float zz = ((float)z / 256.0f) + 0.5f;
-      colors[z] = new Color(zz, zz, zz, 1.0f);
+      colors[z] = new Color(zz, zz, zz, zz);
       circleSizes[z] = 3 * (1.0f - zz);
     }
   }
@@ -242,7 +232,6 @@ public class MachineScreen implements Screen {
   private long avgRenderTime;
   private long avgDrawTime;
   private long renderCount;
-  private long drawCount;
   
   private int addPosition;
   private int fadePosition;
@@ -269,7 +258,6 @@ public class MachineScreen implements Screen {
     }
     
     if (draw) {
-      drawCount++;
       draw(delta, phosphors);
       long drawDuration = TimeUtils.nanoTime() - renderStartTime;
       if (renderCount == 0) {
@@ -292,26 +280,24 @@ public class MachineScreen implements Screen {
       lastLogTime = renderStartTime;
     }
   }
-
+  
   private void draw(float delta, Phosphors phosphors) {
-    // TODO: Use delta to decide how much to reduce phosphors.
-    
     // Get the KeyboardType currently being used by the MachineScreenProcessor.
     KeyboardType keyboardType = machineInputProcessor.getKeyboardType();
     
     // Make our offscreen FBO the current buffer.
-    fbo.begin();
-    
-    //Gdx.gl.glClearColor(0, 0, 0, 1);
+    fbo1.begin();
+
     Gdx.gl.glClear(GL20.GL_COLOR_BUFFER_BIT);
     Gdx.gl.glDisable(GL20.GL_DEPTH_TEST);
+    Gdx.gl.glEnable(GL20.GL_BLEND);
+    Gdx.gl.glBlendFunc(GL20.GL_SRC_ALPHA, GL20.GL_ONE_MINUS_SRC_ALPHA);
     
     // Render the Vectrex screen.
     camera.update();
     
     shapeRenderer.setProjectionMatrix(fboProjection);
     shapeRenderer.begin(ShapeType.Line);
-    shapeRenderer.setColor(Color.YELLOW);
     
     Color c = Color.WHITE;
     
@@ -323,6 +309,7 @@ public class MachineScreen implements Screen {
     
     int maxDots = Phosphors.NUM_OF_PHOSPHORS;
     boolean foundNewFadePosition = false;
+    Phosphor lastDot = null;
     
     for (int i=fadePosition; i != addPosition; i = ((i + 1) % maxDots)) {
       Phosphor dot = dots[i];
@@ -331,29 +318,21 @@ public class MachineScreen implements Screen {
         Color c1 = colors[dot.z];
         shapeRenderer.setColor(c1);
         
-        //shapeRenderer.rect(dot.x, dot.y, 1, 1);
-        //shapeRenderer.circle(dot.x, dot.y, 1);
-        
-        // Experimental: Implementation of rendering dots using the underlying renderer rather than via the ShapeRenderer.
-        // TODO: Doesn't even need the ShapeRenderer if we're going to do this.
-        ImmediateModeRenderer renderer = shapeRenderer.getRenderer();
-        if (renderer.getMaxVertices() - renderer.getNumVertices() < 1) {
-          shapeRenderer.end();
-          shapeRenderer.begin(ShapeType.Line);
+        if (dot.start || (lastDot== null)) {
+          shapeRenderer.point(dot.x, dot.y, 0);
         }
-        renderer.color(c1.r, c1.g, c1.b, c1.a);
-        renderer.vertex(dot.x, dot.y, 0);
-        renderer.color(c1.r, c1.g, c1.b, c1.a);
-        renderer.vertex(dot.x + 1, dot.y, 0);
-
+        else {
+          shapeRenderer.circle(dot.x-1, dot.y-1, 0.5f);
+        }
+        
         // Reduce Z for this dot by 64, which is the number of Z levels faded for a single frame.
         dot.z -= 32;
         
         if (dot.z <= 0) {
           // If this dot's Z is below zero, and we haven't yet found a new fade position, we 
           // adjust the fade position to the dot after this one.
-        
-          if (!foundNewFadePosition) {
+          
+          if (!foundNewFadePosition && (phosphors != null)) {
             fadePosition = i + 1;
           }
           
@@ -362,6 +341,8 @@ public class MachineScreen implements Screen {
           foundNewFadePosition = true;
         }
       }
+      
+      lastDot = dot;
     }
       
     if (phosphors != null) {
@@ -371,31 +352,35 @@ public class MachineScreen implements Screen {
     shapeRenderer.end();
 
     // Unbind the FBO
-    fbo.end();
+    fbo1.end();
     
-    fbo1.begin();
+    Texture gameTexture = fbo1.getColorBufferTexture();
+    
+    // Render the game texture with persistence from previous frames.
+    fbo2.begin();
     Gdx.gl.glClear(GL20.GL_COLOR_BUFFER_BIT);
     Gdx.gl.glDisable(GL20.GL_DEPTH_TEST);
     batch.setProjectionMatrix(fboProjection);
     batch.begin();
-    //batch.setColor(Color.WHITE);
     batch.setShader(persistenceShader);
     persistenceFbo.getColorBufferTexture().bind(1);
     persistenceShader.setUniformi("r", 1);
-    fbo.getColorBufferTexture().bind(0);
-    batch.draw(fbo.getColorBufferTexture(), -SCREEN_HALF_WIDTH, -SCREEN_HALF_HEIGHT);
+    fbo1.getColorBufferTexture().bind(0);
+    batch.draw(gameTexture, -SCREEN_HALF_WIDTH, -SCREEN_HALF_HEIGHT);
     batch.end();
     batch.setShader(null);
-    fbo1.end();
+    fbo2.end();
     
     persistenceFbo.begin();
     Gdx.gl.glClear(GL20.GL_COLOR_BUFFER_BIT);
     Gdx.gl.glDisable(GL20.GL_DEPTH_TEST);
+    Gdx.gl.glEnable(GL20.GL_BLEND);
+    Gdx.gl.glBlendFunc(GL20.GL_SRC_ALPHA, GL20.GL_ONE_MINUS_SRC_ALPHA);
     batch.setProjectionMatrix(fboProjection);
+    batch.disableBlending();
     batch.setShader(copyShader);
     batch.begin();
-    //batch.setColor(Color.WHITE);
-    batch.draw(fbo1.getColorBufferTexture(), -SCREEN_HALF_WIDTH, -SCREEN_HALF_HEIGHT);
+    batch.draw(fbo2.getColorBufferTexture(), -SCREEN_HALF_WIDTH, -SCREEN_HALF_HEIGHT);
     batch.end();
     batch.setShader(null);
     persistenceFbo.end();
@@ -405,7 +390,7 @@ public class MachineScreen implements Screen {
     
     batch.setProjectionMatrix(camera.combined);
     batch.begin();
-    batch.draw(fbo1.getColorBufferTexture(), 0, 0);
+    batch.draw(fbo2.getColorBufferTexture(), 0, 0);
     batch.end();
     
     // Render the UI elements, e.g. the keyboard and joystick icons.
@@ -550,15 +535,7 @@ public class MachineScreen implements Screen {
     joystickIcon.dispose();
     batch.dispose();
     machineRunnable.stop();
-    disposeScreens();
     disposeGLComponents();
-  }
-  
-  /**
-   * Disposes the libGDX screen resources for each MachineType.
-   */
-  private void disposeScreens() {
-    fbo.dispose();
   }
   
   /**
@@ -587,38 +564,29 @@ public class MachineScreen implements Screen {
   }
 
   private ShaderProgram copyShader;
-  private ShaderProgram laserShader;
   private ShaderProgram persistenceShader;
 
   private FrameBuffer persistenceFbo;
-  private FrameBuffer laserFbo;
   private FrameBuffer fbo1;
   private FrameBuffer fbo2;
   
   public void initGLComponents() {
     String staticVert = Gdx.files.internal("glsl/static.glsl").readString();
+    //String staticVert = Gdx.files.internal("glsl/vertex.glsl").readString();
     String copyFrag = Gdx.files.internal("glsl/copy.glsl").readString();
-    String laserFrag = Gdx.files.internal("glsl/laser.glsl").readString();
     String persistenceFrag = Gdx.files.internal("glsl/persistence.glsl").readString();
-    
     copyShader = new ShaderProgram(staticVert, copyFrag);
-    laserShader = new ShaderProgram(staticVert, laserFrag);
     persistenceShader = new ShaderProgram(staticVert, persistenceFrag);
-
     persistenceFbo = FrameBuffer.createFrameBuffer(Format.RGBA8888, SCREEN_WIDTH, SCREEN_HEIGHT, false);
-    laserFbo = FrameBuffer.createFrameBuffer(Format.RGBA8888, SCREEN_WIDTH, SCREEN_HEIGHT, false);
     fbo1 = FrameBuffer.createFrameBuffer(Format.RGBA8888, SCREEN_WIDTH, SCREEN_HEIGHT, false);
     fbo2 = FrameBuffer.createFrameBuffer(Format.RGBA8888, SCREEN_WIDTH, SCREEN_HEIGHT, false);
   }
   
   public void disposeGLComponents() {
     copyShader.dispose();
-    laserShader.dispose();
     persistenceShader.dispose();
     persistenceFbo.dispose();
-    laserFbo.dispose();
     fbo1.dispose();
     fbo2.dispose();
-    fbo.dispose();
   }
 }

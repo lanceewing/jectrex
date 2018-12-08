@@ -131,6 +131,7 @@ public class MachineInputProcessor extends InputAdapter {
     } else if (keycode == Keys.F10) {
       // TODO: Reserved for screenshot.
       // TODO: machineScreen.saveScreenshot(); 
+      // byte[] screenshotPixels = ScreenUtils.getFrameBufferPixels(true);
       
     } else if (keycode == Keys.F5) { 
       machineScreen.toggleShowFPS();
